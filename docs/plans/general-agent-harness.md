@@ -1,9 +1,9 @@
 # General Agent Harness Roadmap
 
-Status: planning only  
-Audit date: 2026-09-14  
+Status: planning only
+Audit date: 2026-09-14
 Audited upstream: `deepseek-ai/deepseek-harness` `master` at
-`c291e7961a515f6d7af9304e7fd1d257929aef26`  
+`c291e7961a515f6d7af9304e7fd1d257929aef26`
 Reference only: `Glyph-Software/sentinel` `main` at
 `9f41e394b6b7af22462d03a96181fca515075d76`
 
