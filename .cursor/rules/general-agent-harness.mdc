@@ -12,6 +12,20 @@ before starting the next phase.
 ## Architecture
 
 - Preserve DeepSeek Harness and its Cordis plugin/composition model.
+- Before implementing a phase, inspect the relevant DeepSeek Harness seams in
+  the imported source (or the pinned upstream revision before Phase 0). Do
+  not design from memory or from the roadmap summaries alone.
+- After Phase 0, prefer the locally imported upstream source. When validating
+  behavior or changes, compare against the pinned/documented upstream
+  revision.
+- Use Sentinel only as a read-only architectural reference, especially for
+  shell/Bash interaction, persistent terminals, sandboxing, approval UX,
+  task/subagent coordination, background execution, and security-oriented
+  workflows. Do not copy its source, prompts, schemas, or protected
+  expression.
+- Record which DeepSeek seams were inspected and, when Sentinel was relevant,
+  which architectural pattern was compared before introducing a new
+  abstraction.
 - Prefer changes in this order: `REUSE → EXTEND → EXTRACT → NEW → REPLACE`.
 - `REPLACE` requires an ADR proving an additive extension cannot work, plus a
   migration path and regression coverage.
@@ -88,7 +102,8 @@ before starting the next phase.
 - Keep Cybersecurity code under `packages/domain/`; never import it from core.
 - Keep generic policy extensions in the existing guard subsystem.
 - Record every unavoidable core modification in an upstream-style architecture
-  or agent note and add adjacent regression tests.
+  or agent note, include the phase reference-inspection record, and add
+  adjacent regression tests.
 - Preserve full upstream Git history and merge upstream updates; do not replace
   upstream code with copied snapshots.
 
