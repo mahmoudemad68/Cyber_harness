@@ -1,0 +1,92 @@
+---
+description: Architecture, safety, compatibility, and upstream rules for the general agent harness
+alwaysApply: true
+---
+
+# General Agent Harness project rules
+
+Treat `docs/plans/general-agent-harness.md` as the authoritative implementation
+roadmap. Implement one phase at a time and satisfy its objective exit criteria
+before starting the next phase.
+
+## Architecture
+
+- Preserve DeepSeek Harness and its Cordis plugin/composition model.
+- Prefer changes in this order: `REUSE → EXTEND → EXTRACT → NEW → REPLACE`.
+- `REPLACE` requires an ADR proving an additive extension cannot work, plus a
+  migration path and regression coverage.
+- Keep core provider-agnostic and domain-agnostic. Core must not know about
+  Cybersecurity, Coding, Pentesting, Data Science, or a specific model vendor.
+- Reuse the existing agent loop, sessions/events, prompt assembly, typed tool
+  runtime, model adapters, capability providers, profiles, bundles, presets,
+  MCP, jobs, workflows, and subagents.
+- Do not add parallel registries, loaders, session stores, agent runtimes,
+  capability frameworks, `DomainRegistry`, or `RoleRegistry`.
+- Model a domain as an installable bundle/plugin plus agent role presets.
+- Model a role as an existing agent preset with persona, prompts, skills,
+  scoped tools, policies, and service requirements.
+- Follow SOLID: keep contracts narrow, depend on service definitions rather
+  than providers, keep policy separate from execution, and keep domain packages
+  isolated from generic packages.
+
+## Models, tools, and capabilities
+
+- Keep canonical message, stream, and tool contracts independent of provider
+  wire formats. Convert only inside provider adapters.
+- Keep one canonical `ToolRuntime`. A model tool surface is a scoped view over
+  canonical tools, never a second execution registry.
+- Tool-surface aliases must preserve parameter schemas and arguments. Do not
+  rewrite model arguments; use an explicit typed adapter tool when schemas
+  differ.
+- Register tools dynamically through Cordis effects and preserve typed input,
+  typed output, timeout, cancellation, concurrency, presentation, and policy
+  metadata.
+- Tool implementations must consume generic capability services such as
+  filesystem, subprocess, shell, sandbox, terminal, Web, jobs, and subagents.
+- Never execute model output through `os.system`, unchecked shell
+  interpolation, or an unvalidated process-launch path.
+- Forward cancellation and wait for owned work to reach quiescence.
+
+## Policy and security
+
+- Prompts advise; policies and capability providers enforce.
+- Preserve monotonic safety: an allow decision must never override a tool
+  restriction, guard denial, sandbox denial, or provider boundary.
+- Resolve and freeze effect/target metadata before approval and execution.
+- Keep effect metadata host-only; never leak it into provider tool schemas.
+- Preserve logged arguments = executed arguments.
+- Treat undeclared MCP/third-party tools as opaque in strict profiles.
+- Treat Cordis scope as composition isolation, not an untrusted-code sandbox.
+- Do not claim local filesystem sandboxing enforces network scope.
+- Keep unrestricted Cybersecurity shell, PTY, scanners, credentials, and MCP
+  disabled until provider-level target/egress enforcement exists.
+- Redact credentials and sensitive values before prompt, result, or audit
+  persistence.
+- Use Sentinel only as an architectural reference. Its audited repository has
+  no source license grant; do not copy its source, prompts, or schemas.
+
+## Compatibility and upstream maintenance
+
+- Preserve existing profiles, presets, plugins, model adapters, tools,
+  sessions, SDKs, MCP integrations, and CLI behavior by default.
+- Use identity/permissive defaults for additive generic seams and keep domain
+  behavior opt-in.
+- Do not rename or move upstream files without a demonstrated requirement.
+- Keep Cybersecurity code under `packages/domain/`; never import it from core.
+- Keep generic policy extensions in the existing guard subsystem.
+- Record every unavoidable core modification in an upstream-style architecture
+  or agent note and add adjacent regression tests.
+- Preserve full upstream Git history and merge upstream updates; do not replace
+  upstream code with copied snapshots.
+
+## Verification
+
+- Test with real Cordis loader composition, not only hand-built contexts.
+- Cover unit, integration, sandbox/process, profile-isolation, session replay,
+  SDK, and provider-adapter behavior in proportion to each phase.
+- Include deterministic `LLM → tool → policy → provider → result → LLM`
+  coverage for new vertical slices.
+- Verify Cybersecurity loading and unloading does not mutate `standard`
+  general/coding behavior.
+- Document deferred or unsafe capabilities as disabled; do not imply they are
+  implemented or secure.
