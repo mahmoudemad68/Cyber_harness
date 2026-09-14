@@ -1371,7 +1371,7 @@ Prompts advise. Policy and providers enforce.
 - deny undeclared/opaque tools in strict roles;
 - allow only structured targets in configured engagement scope;
 - use bounded timeout/cancellation and evidence output;
-- keep arbitrary shell/PT​​Y, scanners, credentials, and MCP off by default;
+- keep arbitrary shell/PTY, scanners, credentials, and MCP off by default;
 - require provider-level egress controls before enabling unrestricted network
   tooling;
 - redact secrets from audit and model content;
