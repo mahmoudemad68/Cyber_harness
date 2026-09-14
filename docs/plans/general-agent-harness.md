@@ -2,7 +2,8 @@
 
 Status: planning only
 Audit date: 2026-09-14
-Revised: 2026-09-14 — Cybersecurity execution model
+Revised: 2026-09-14 — Cybersecurity execution model; per-phase
+reference-implementation inspection
 Audited upstream: `deepseek-ai/deepseek-harness` `master` at
 `c291e7961a515f6d7af9304e7fd1d257929aef26`
 Reference only: `Glyph-Software/sentinel` `main` at
@@ -17,7 +18,9 @@ The 2026-09-14 revision changes Cybersecurity from a restricted
 structured-tool proof into an execution-capable domain. Execution-oriented
 roles operate real shell, persistent PTY, and installed security CLI tools
 under controlled runtime boundaries. Security is not achieved by removing
-agent capability.
+agent capability. Implementation of each phase must inspect live DeepSeek
+Harness seams and may compare Sentinel only as a read-only architectural
+reference (Section 2.4).
 
 All DeepSeek Harness source paths below were verified against the pinned
 upstream commit. They will become local paths after Phase 0 imports the
@@ -101,6 +104,53 @@ The audit traced:
 
 No runtime test was executed during the remote audit because the source was not
 yet present in this repository.
+
+The planning audit is not a substitute for per-phase re-inspection. Before
+implementing a phase, inspect the current DeepSeek Harness source at the
+imported or pinned revision. Do not design from this document’s memory of
+upstream seams.
+
+### 2.4 Reference implementations
+
+DeepSeek Harness is the authoritative implementation base.
+
+- After Phase 0, prefer the locally imported upstream source.
+- When validating upstream behavior or changes, compare against the
+  pinned/documented upstream revision recorded at the top of this document,
+  or a later imported revision recorded in the upstream-sync note.
+- Extend established DeepSeek seams. Do not introduce a parallel
+  abstraction because a phase was designed from memory or from this plan
+  alone.
+
+`Glyph-Software/sentinel` is a read-only architectural reference only. Use it
+where relevant, especially for:
+
+- shell and Bash agent interaction;
+- persistent/interactive terminal behavior;
+- sandboxed execution;
+- approval and permission UX;
+- task/subagent coordination;
+- monitoring/background execution;
+- security-oriented agent workflows.
+
+Do not copy Sentinel source code, prompts, schemas, or other protected
+expression. Architectural similarity must come from independent design
+against DeepSeek seams.
+
+For every phase, before introducing a new abstraction or landing
+implementation, record:
+
+1. which existing DeepSeek seams were inspected, with package/path and
+   revision;
+2. what those seams already provide;
+3. whether Sentinel was relevant and, if so, which architectural pattern was
+   compared;
+4. why `REUSE` or `EXTEND` is insufficient if a `NEW` or `REPLACE` operation
+   is proposed.
+
+The record belongs in the phase architecture/agent note or
+`docs/notes/phase-<n>-reference-inspection.md`. A phase that adds a new
+abstraction without this record does not meet its exit criteria.
 
 ## 3. Current architecture assessment
 
@@ -1211,6 +1261,13 @@ See Section 15.
 
 Each phase is blocked on its objective exit criteria.
 
+Before implementing a phase, inspect the relevant existing DeepSeek Harness
+implementation and extend its established seams. After Phase 0, inspect the
+local import. Compare behavior against the pinned/documented upstream
+revision. Consult Sentinel only as a read-only architectural reference where
+the phase list below marks it relevant. Record the inspection as specified
+in Section 2.4. Do not start coding from this roadmap’s summaries alone.
+
 ### Phase 0 — Upstream foundation
 
 Classification: `REUSE`
@@ -1228,6 +1285,14 @@ ancestry and make future upstream updates materially harder.
 Existing code involved:
 
 The complete upstream Git history and source tree.
+
+Reference inspection:
+
+- DeepSeek: repository URL, pinned `master` commit, MIT license, lockfile,
+  workflow/config files, README, and SAFETY.md before merge.
+- Sentinel: not required. Do not import or vendor Sentinel.
+- Record the imported commit in the upstream-sync note. That revision becomes
+  the local source of truth for later phases.
 
 Exact architectural seam:
 
@@ -1275,6 +1340,7 @@ Exit criteria:
 - full ancestry is visible;
 - dependency install is reproducible;
 - baseline results are recorded;
+- the Phase 0 inspection record names the imported DeepSeek revision;
 - no custom runtime change is included.
 
 ### Phase 1 — Installable domain composition
@@ -1297,6 +1363,16 @@ Existing code involved:
 - [`packages/preset/agent-presets/src/discovery.ts`](../../packages/preset/agent-presets/src/discovery.ts);
 - preset mount, standing generations, and scope-parent binding;
 - profile/bundle loader.
+
+Reference inspection:
+
+- DeepSeek: `packages/preset/agent-presets` (`index.ts`, `discovery.ts`,
+  mount, standing generations, `composeFrom`), profile/bundle loader, and
+  shipped `standard` preset lifecycle.
+- Sentinel: optional comparison of role/persona composition as architecture
+  only. Do not add a `RoleRegistry` or `DomainRegistry` because Sentinel
+  names those concepts.
+- Record inspected preset/discovery seams before adding `registerRoot`.
 
 Exact architectural seam:
 
@@ -1344,7 +1420,8 @@ Tests required:
 Exit criteria:
 
 Two independent fixture plugins contribute roles concurrently, unload cleanly,
-and do not alter a profile that did not load them.
+and do not alter a profile that did not load them. The inspection record lists
+the DeepSeek preset/discovery seams that were re-read before the extension.
 
 ### Phase 2 — Model Tool Surface
 
@@ -1368,6 +1445,16 @@ Existing code involved:
 - request-header tool snapshots;
 - PTC mode;
 - provider adapters.
+
+Reference inspection:
+
+- DeepSeek: `packages/core/tools` ToolRuntime scoped layers, `wireSchemas`,
+  `schemas`, `resolveExecution`, `executionMode`, PTC, request-header tool
+  snapshots, and DeepSeek/pi-ai adapter serialization.
+- Sentinel: optional comparison of model-facing tool vocabulary. Do not
+  create a second tool registry or rewrite arguments to match a Sentinel
+  schema.
+- Record inspected ToolRuntime seams before adding `ModelToolSurface`.
 
 Exact architectural seam:
 
@@ -1419,7 +1506,8 @@ Tests required:
 Exit criteria:
 
 A scripted model calls a synthetic exposed alias, one canonical tool executes
-through the normal pipeline, and identity snapshots remain unchanged.
+through the normal pipeline, identity snapshots remain unchanged, and the
+inspection record lists the ToolRuntime/adapter seams that were re-read.
 
 ### Phase 3 — Effect-aware scoped policy
 
@@ -1445,6 +1533,17 @@ Existing code involved:
 - pre-execute, approval, and guard stages;
 - timeout and sandbox policy;
 - sessions and projections.
+
+Reference inspection:
+
+- DeepSeek: `defineTool` / `ToolDefinition`, immutable tool execution,
+  `tools/pre-execute`, `ctx.approval`, `ctx.tools.guard()`, timeout-policy,
+  sandbox escalation, and session/projection event types.
+- Sentinel: approval and permission UX as architecture only. Adapt onto
+  existing one-shot approval and monotonic guards. Do not copy Sentinel
+  permission schemas or prompts.
+- Record inspected policy/approval/guard seams before adding effect
+  descriptors or a new policy plugin.
 
 Exact architectural seam:
 
@@ -1514,7 +1613,9 @@ Exit criteria:
 An out-of-scope structured-tool call is denied before provider invocation.
 A shell/PTY call is not denied merely because targets cannot be parsed from
 the command string. An in-scope approved call executes exactly once, every
-decision is auditable, and standard-profile snapshots are unchanged.
+decision is auditable, standard-profile snapshots are unchanged, and the
+inspection record lists the DeepSeek policy/approval/guard seams that were
+re-read.
 
 ### Phase 4 — Cybersecurity execution-capable domain
 
@@ -1546,6 +1647,24 @@ Existing code involved:
 - typed tools and optional `ctx.web`;
 - filesystem, todos/jobs, and subagents;
 - restrictions, approval, and effect policy.
+
+Reference inspection:
+
+- DeepSeek: model-facing Bash and `ctx.shell`; sandboxed shell providers;
+  `ctx.subprocess`; `ctx.sandbox` / `ctx.sandboxPolicy`; `ctx.terminals`
+  persistent PTY (`spawn`, `startSend`, incremental output, signals, close);
+  model-facing persistent Bash; `ctx.jobs`; cancellation/timeouts; tool
+  execution pipeline; environment scrubbing. Re-read these before composing
+  the Cyber Execution Environment.
+- Sentinel: compare architectural patterns for shell/Bash agent interaction,
+  persistent/interactive terminal behavior, sandboxed execution,
+  monitoring/background execution, task/subagent coordination, and
+  security-oriented agent workflows. Do not copy Sentinel tools, prompts,
+  schemas, or scanner wrappers. Do not replace DeepSeek Bash/PTY with a
+  Sentinel-like private shell.
+- Record inspected DeepSeek execution seams and any Sentinel pattern
+  comparison before adding environment composition, role presets, or a new
+  provider type.
 
 Exact architectural seam:
 
@@ -1662,7 +1781,10 @@ Exit criteria:
 - execution remains auditable;
 - standard/general agents remain unaffected;
 - read-only cyber roles remain appropriately restricted;
-- unloading Cybersecurity restores the original roster.
+- unloading Cybersecurity restores the original roster;
+- the inspection record lists the DeepSeek shell/PTY/sandbox/jobs seams that
+  were re-read and, if Sentinel was consulted, which patterns were compared
+  without source reuse.
 
 Distinguish functional capability, which this phase must prove, from
 production-grade network isolation, which this phase must not claim.
@@ -1689,6 +1811,16 @@ Existing code involved:
 - session persistence;
 - DeepSeek and pi-ai adapters;
 - Web/headless profile fixtures.
+
+Reference inspection:
+
+- DeepSeek: Vitest/coverage layout, real-loader fixtures, snapshot harness,
+  SDK server/client, session persistence/replay, and adapter test suites.
+  Re-read these before adding new golden data or fixtures.
+- Sentinel: not required unless a verification scenario is compared
+  architecturally. Do not import Sentinel tests, prompts, or schemas.
+- Record which DeepSeek test/SDK seams were inspected before changing
+  snapshots or adding compatibility gates.
 
 Exact architectural seam:
 
@@ -1753,7 +1885,8 @@ Exit criteria:
 All gates pass or an unchanged upstream baseline failure is explicitly
 quarantined. No provider-specific or Cybersecurity-specific dependency enters
 core contracts. Functional Cybersecurity execution is verified. Production-grade
-network isolation is not claimed.
+network isolation is not claimed. The inspection record lists the DeepSeek
+test, SDK, and adapter seams that were re-read.
 
 ### Phase 6 — Cyber execution-provider network isolation
 
@@ -1780,6 +1913,18 @@ Existing code involved:
 - environment scrubbing and resource limits;
 - effect policy for structured tools;
 - Cyber Execution Environment composition from Phase 4.
+
+Reference inspection:
+
+- DeepSeek: `ctx.sandbox`, `ctx.sandboxPolicy`, local and E2B sandbox
+  providers, `ctx.subprocess`, `ctx.shell`, `ctx.terminals`, environment
+  scrubbing, and resource limits. A new provider type is allowed only if this
+  inspection shows those contracts cannot express namespace, destination, or
+  DNS/egress controls.
+- Sentinel: sandboxed execution and security-oriented isolation as
+  architecture only. Do not copy Sentinel sandbox/network implementations.
+- Record inspected DeepSeek sandbox/subprocess seams and the Sentinel
+  comparison, if any, before adding a new execution-provider abstraction.
 
 Exact architectural seam:
 
@@ -1845,7 +1990,9 @@ Exit criteria:
 
 Stage B proves destination unreachability from arbitrary shell in the Cyber
 Execution Environment. Documentation states the remaining Stage C gaps
-explicitly. Functional shell capability from Phase 4 remains intact.
+explicitly. Functional shell capability from Phase 4 remains intact. The
+inspection record lists the DeepSeek sandbox/subprocess/shell/terminal seams
+that were re-read and justifies any new provider type from that inspection.
 
 ## 12. Test strategy
 
@@ -2122,7 +2269,9 @@ enablement of deferred privileged access.
 
 The project is pre-stable and active. Revalidate source paths and contracts
 against the exact imported commit before editing. Keep core deltas small and
-adjacent to existing seams.
+adjacent to existing seams. The planning audit in this document is evidence
+for sequencing, not a license to skip per-phase inspection of the live
+DeepSeek source.
 
 ### Security maturity
 
@@ -2132,7 +2281,9 @@ a production security boundary.
 ### Sentinel licensing
 
 No source license was found. Architectural similarity must come from
-independent design, not source reuse.
+independent design, not source reuse. Sentinel may be compared as a
+read-only reference for the patterns listed in Section 2.4. It is never an
+implementation base.
 
 ### Tool surface consistency
 
@@ -2189,9 +2340,11 @@ with redaction and retention policy.
    terminal providers for Cyber execution and network isolation. Do not add
    a parallel process-launch stack.
 9. Record every core delta in the upstream project’s architecture/agent-note
-   style.
+   style, including the Section 2.4 reference-inspection record.
 10. Keep tests adjacent to each modified upstream package.
 11. Re-run baseline and isolation suites after every upstream merge.
+12. Re-inspect local imported DeepSeek seams before each later phase; do not
+    rely on the planning-time audit as the implementation source of truth.
 
 ## 18. Ideas already solved by DeepSeek Harness
 
@@ -2270,7 +2423,10 @@ The eventual minimum implementation is done only when:
   minimum functional implementation;
 - Phase 6 is required before claiming production-grade network isolation, not
   before enabling shell, PTY, or real CLI execution;
-- documentation accurately describes both guarantees and limitations.
+- documentation accurately describes both guarantees and limitations;
+- each implemented phase has a reference-inspection record naming the
+  DeepSeek seams that were re-read and, when Sentinel was relevant, the
+  architectural pattern compared before any new abstraction.
 
 Functional capability is distinct from production-grade network isolation.
 The minimum implementation is not complete without the shell/PTY/CLI loop.
@@ -2293,5 +2449,6 @@ disabled.
 7. Phase 6: execution-provider network isolation, Stage B then Stage C.
 
 No later phase begins until the preceding phase meets its exit criteria.
-Phase 6 must not be used to reopen a Phase 4 design that disables Bash or
-PTY.
+Each phase starts with the Section 2.4 reference inspection of live DeepSeek
+seams, not with new code. Phase 6 must not be used to reopen a Phase 4 design
+that disables Bash or PTY.
