@@ -249,7 +249,10 @@ Recorded after the merge on `cursor/phase-0-upstream-foundation-b38e`:
    `e815acddc8b5226bd5155a93b0f5aee3f9116d53` (this project) and
    `c291e7961a515f6d7af9304e7fd1d257929aef26` (upstream).
 
-Install results and baseline test results belong in `docs/upstream-sync.md`.
+Install results and baseline test results are in `docs/upstream-sync.md`.
+Typecheck and lint passed. Unit tests had two environment-path failures in
+`packages/skill/tool-skill/tests/tool-skill.spec.ts` (checkout is
+`/workspace`). Shipped headless `text-turn` snapshot replay passed.
 
 ## 11. Phase 0 custom-runtime prohibition
 

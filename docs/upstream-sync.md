@@ -174,35 +174,89 @@ Phase 0.
 
 ## Baseline verification results
 
-Status: pending at the pre-test revision. This section is updated after the
-commands above run on the merge commit.
+Recorded 2026-09-14 on Ubuntu 24.04.4 (linux x64), Node `v22.22.2` (nvm;
+satisfies `^22.19.0`), pnpm `11.7.0`. The environment's default PATH `node`
+was `v22.14.0` (`/exec-daemon/node`), which is below the upstream engine
+floor; verification used nvm `v22.22.2` first on `PATH`.
+
+Working tree remained clean of tracked source after these commands. No
+upstream runtime file was edited to make a check pass.
 
 | Check | Command | Result |
 |---|---|---|
-| Dependency install | `pnpm install --frozen-lockfile` | pending |
-| Typecheck | `pnpm run typecheck` | pending |
-| Unit tests | `pnpm run test` | pending |
-| Lint | `pnpm run lint` | pending |
-| Default config dump | `pnpm dsh --dump-default-config` | pending |
-| Web profile config dump | `pnpm dsh --profile web --dump-config` | pending |
-| Headless profile config dump | `pnpm dsh --profile headless --dump-config` | pending |
-| Shipped profile smoke | `pnpm run test:snapshot` | pending |
+| Frozen lockfile install | `pnpm install --frozen-lockfile` | Packages resolved (1260 added; lockfile up to date; supply-chain policy passed). Root `postinstall` then failed; see known failures. |
+| Frozen lockfile without lefthook installer | `pnpm install --frozen-lockfile --ignore-scripts` | Exit 0. Lockfile reproducible. Native lifecycle scripts from the first install (esbuild, node-pty, koffi) remained. |
+| Typecheck | `pnpm run typecheck` | Exit 0. ~2m 52s (`2026-09-14T18:04:28Z`–`18:07:20Z`). Host `tsc` + tsdown, then `tsc -b tsconfig.client.json`. |
+| Lint | `pnpm run lint` | Exit 0. ~1m 02s (`18:07:33Z`–`18:08:35Z`). |
+| Unit tests | `pnpm run test` | Exit 1. Native addon built (`linux-x64/bin/glibc/system.node`). **1264 files passed**, 13 skipped, **1 file failed**. **22508 tests passed**, 129 skipped, 1 expected fail, **2 failed**. ~9m 57s. See known failures. |
+| CLI help | `pnpm dsh --help` | Exit 0. |
+| Default config dump without profile | `pnpm dsh --dump-default-config` | Exit 1. Upstream CLI: `error: --profile <name> is required`. Not a merge defect. |
+| Web default-config dump | `pnpm dsh --profile web --dump-default-config` | Exit 0. 539-line YAML. |
+| Web profile config dump | `pnpm dsh --profile web --dump-config` | Exit 0. 539-line YAML. Includes `@deepseek-ai/dsh-web-app` and `agent-presets` with `default: standard`. |
+| Headless profile config dump | `pnpm dsh --profile headless --dump-config` | Exit 0. 348-line YAML. Includes `@deepseek-ai/dsh-headless`. |
+| SDK profile config dump | `pnpm dsh --profile sdk --dump-config` | Exit 0. 352-line YAML. Includes `sdk-jsonrpc-server`. |
+| Shipped profile smoke | `vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t "replays text-turn through dsh --profile headless"` | Exit 0. `✓ ... replays text-turn through dsh --profile headless 1843ms`. Keyless recorded-session replay through the shipped headless `dsh` profile. |
+
+`pnpm dsh --profile headless "task"` against a live model was not run:
+`DEEPSEEK_API_KEY` is not available in this environment. The keyless snapshot
+replay is the upstream-supported shipped-profile smoke.
 
 ### Known baseline failures
 
-None recorded yet. Upstream failures that are not caused by this merge will be
-listed here without a Phase 0 source fix.
+1. **Root lefthook installer in this Cloud Agent environment (install).**
+   `pnpm install --frozen-lockfile` fetches the lockfile closure, then
+   `node scripts/install-lefthook.mjs` exits 1:
 
-Expected fork-operations issues, not treated as merge bugs:
+   ```text
+   [install-lefthook] refusing to replace user-owned core.hooksPath
+   (file:.git/config: "/home/ubuntu/.cursor/agent-hooks/L3dvcmtzcGFjZQ")
+   ```
+
+   This is lefthook installer fail-closed behavior when `core.hooksPath` is
+   already owned (here, by Cursor agent hooks). It is not a lockfile defect
+   and is not caused by the unrelated-histories merge. Phase 0 did not set
+   `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1` (that would replace agent
+   hooks). Workaround used for the rest of baseline: keep the first install's
+   native postinstall artifacts and use `--ignore-scripts` for a 0-exit
+   lockfile verification. On a clone without a custom `core.hooksPath`,
+   lefthook installer is expected to succeed.
+
+2. **Two `dsh-tool-skill` unit tests when the checkout path is `/workspace`.**
+   File: `packages/skill/tool-skill/tests/tool-skill.spec.ts`.
+
+   - `injects a stable durable name-and-description catalog at the first step`
+   - `does not inject a catalog when no model-invocable skills are available`
+
+   Both use `agentForCwd('/workspace')` as a vacant working directory that
+   should not discover project skills. This Cloud Agent checkout *is*
+   `/workspace`, which contains upstream `.agents/skills`, so the tests see
+   the real DeepSeek skill catalog instead of `[]`. **Not caused by the
+   merge:** the spec and skill sources are unmodified upstream; 22508 other
+   tests passed; git status was clean. Do not change the spec in Phase 0.
+   Re-running the suite from a checkout path other than `/workspace` is the
+   expected way to get upstream's own result.
+
+3. **`pnpm dsh --dump-default-config` without `--profile`.** Upstream CLI at
+   this revision requires `--profile <name>`. Use
+   `pnpm dsh --profile web --dump-default-config`.
+
+Expected fork-operations issues, not treated as merge bugs and not executed
+as Phase 0 pass/fail gates:
 
 - Imported GitHub workflows target upstream runners, secrets
   (`DEEPSEEK_API_KEY_EXTERNAL`, `NPM_TOKEN`), and repository name checks.
   They may fail or skip on `mahmoudemad68/Cyber_harness`.
 - Upstream `verify-translation-pairing` requires every `docs/**` document to
   be a bilingual pair. This repository's planning files under `docs/plans/`
-  and Phase 0 notes under `docs/notes/` are English-only by design. That is
-  a documented fork documentation mismatch, not an upstream test defect and
+  and Phase 0 notes under `docs/notes/` / `docs/upstream-sync.md` are
+  English-only by design. That is a documented fork documentation mismatch,
   not a reason to edit upstream pairing machinery in Phase 0.
+
+Install warnings observed and not treated as failures:
+
+- Unsupported-platform skips for darwin/arm64 native packages on linux x64.
+- `Failed to create bin ... apps/cli/lib/bin.js` before `pnpm run build`.
+  Source launch (`pnpm dsh` via tsx) does not need that bin.
 
 ## Security and safety warnings from upstream
 
