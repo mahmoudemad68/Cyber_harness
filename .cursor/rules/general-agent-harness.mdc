@@ -55,11 +55,24 @@ before starting the next phase.
 - Resolve and freeze effect/target metadata before approval and execution.
 - Keep effect metadata host-only; never leak it into provider tool schemas.
 - Preserve logged arguments = executed arguments.
-- Treat undeclared MCP/third-party tools as opaque in strict profiles.
+- Treat undeclared MCP/third-party tools as opaque in effect-aware profiles.
 - Treat Cordis scope as composition isolation, not an untrusted-code sandbox.
 - Do not claim local filesystem sandboxing enforces network scope.
-- Keep unrestricted Cybersecurity shell, PTY, scanners, credentials, and MCP
-  disabled until provider-level target/egress enforcement exists.
+- Do not solve Cybersecurity safety by removing agent capability. Execution-capable
+  Cybersecurity roles may expose generic Bash, persistent PTY, jobs, and
+  approved security binaries. Enforce boundaries through role-scoped tool
+  visibility, ToolRuntime policy, sandboxing, execution providers,
+  network/egress controls, authorization scope, approvals, and audit.
+- Do not treat command-string parsing as engagement-scope enforcement for
+  arbitrary shell. Structured tools keep typed effect/target policy; general
+  shell is constrained by process policy and the isolated execution provider.
+- Read-only Cybersecurity roles must not receive execution capabilities unless
+  required. Credentials, privileged containers, Docker socket access, host
+  networking, root capabilities, and host filesystem escape remain controlled
+  and off by default.
+- Fail closed when a profile's mandatory enforcement is unavailable. Stage A
+  lab profiles must not mark Stage B/C network isolation as mandatory. Do not
+  claim production-grade network isolation before a provider proves it.
 - Redact credentials and sensitive values before prompt, result, or audit
   persistence.
 - Use Sentinel only as an architectural reference. Its audited repository has
@@ -85,8 +98,11 @@ before starting the next phase.
 - Cover unit, integration, sandbox/process, profile-isolation, session replay,
   SDK, and provider-adapter behavior in proportion to each phase.
 - Include deterministic `LLM → tool → policy → provider → result → LLM`
-  coverage for new vertical slices.
+  coverage for new vertical slices, including the Cybersecurity Bash/PTY path
+  with real CLI output.
 - Verify Cybersecurity loading and unloading does not mutate `standard`
   general/coding behavior.
-- Document deferred or unsafe capabilities as disabled; do not imply they are
-  implemented or secure.
+- Document deferred privileged capabilities and unproven isolation guarantees
+  as disabled or not-yet-enforced; do not imply they are implemented or
+  secure. Do not treat generic Bash/PTY for execution-capable Cybersecurity
+  roles as deferred.

@@ -2,6 +2,7 @@
 
 Status: planning only
 Audit date: 2026-09-14
+Revised: 2026-09-14 — Cybersecurity execution model
 Audited upstream: `deepseek-ai/deepseek-harness` `master` at
 `c291e7961a515f6d7af9304e7fd1d257929aef26`
 Reference only: `Glyph-Software/sentinel` `main` at
@@ -11,6 +12,12 @@ This document is the authoritative implementation roadmap for evolving
 DeepSeek Harness into a domain-agnostic agent harness with Cybersecurity as the
 first reference domain. It records an architectural audit and a sequence of
 gated implementation phases. It does not implement those phases.
+
+The 2026-09-14 revision changes Cybersecurity from a restricted
+structured-tool proof into an execution-capable domain. Execution-oriented
+roles operate real shell, persistent PTY, and installed security CLI tools
+under controlled runtime boundaries. Security is not achieved by removing
+agent capability.
 
 All DeepSeek Harness source paths below were verified against the pinned
 upstream commit. They will become local paths after Phase 0 imports the
@@ -36,9 +43,16 @@ architectural delta is:
 4. Add host-only effect descriptors to existing typed tools and enforce them
    through an opt-in policy plugin built on `tools/pre-execute`, approval, and
    monotonic guards.
-5. Add an isolated Cybersecurity domain bundle with role presets, prompts,
-   skills, strict policy, and one structured scope-checked reference tool.
-6. Keep the shipped `standard` preset unchanged as the general/coding control.
+5. Add an isolated Cybersecurity domain bundle with role-specific presets,
+   prompts, skills, and policy. Execution-oriented roles expose the existing
+   generic Bash, persistent Bash/PTY, and jobs capabilities, plus at least
+   one real security CLI binary inside a composed Cyber Execution
+   Environment. Structured security tools complement shell; they do not
+   replace it.
+6. Enforce engagement scope at execution-provider and network boundaries for
+   arbitrary shell, and with typed effect/target policy for structured
+   tools. Do not treat command-string parsing as the security boundary.
+7. Keep the shipped `standard` preset unchanged as the general/coding control.
 
 There is no justified `REPLACE` operation in the first increment.
 
@@ -332,6 +346,10 @@ environment variables, supports bounded collection/spill, and exposes terminal
 spawn support. Domain tools must consume these seams rather than create new
 process-launch paths.
 
+Cybersecurity must reuse this stack. Do not create a second shell framework,
+a Cyber-specific Bash replacement, or a parallel PTY abstraction unless a
+verified missing capability requires an additive extension.
+
 ### 3.9 Filesystem, shell, and sandbox
 
 Filesystem tools already support typed read/write/edit operations. Mutations
@@ -344,7 +362,16 @@ unavailable.
 The critical limitation is that the local sandbox controls filesystem effects,
 not network egress or all syscalls. It cannot independently enforce a
 cybersecurity engagement target allowlist for arbitrary Bash or PTY commands.
-Prompts and approvals do not close that gap.
+Prompts, approvals, and command-string parsing do not close that gap.
+
+That limitation is an execution-provider problem, not a reason to hide Bash
+or PTY from execution-oriented Cybersecurity roles. The first increment
+reuses the existing shell, subprocess, sandbox, terminal, and jobs
+capabilities. Stronger network namespace, destination, DNS, and egress
+controls are an explicit staged track (Section 8.5 and Phase 6). Do not
+claim those guarantees before a provider enforces them. Do not block shell
+functionality while they are developed. Development and test profiles may
+operate only against explicitly authorized local lab targets.
 
 ### 3.10 Persistent terminal
 
@@ -364,9 +391,29 @@ agent and one send is active per session. The Bash terminal provider consumes
 the sandbox/subprocess stack.
 
 Missing capabilities are terminal resize and restart durability. They are not
-needed to prove the first domain abstraction. Resize should later be an
-additive backend method; durability requires a separate design because live
-PTY processes cannot be reconstructed from the session transcript.
+required for the first Cybersecurity implementation if the existing PTY
+already supports spawn, write, incremental output, follow-up input, signals,
+and close. Resize should later be an additive backend method; durability
+requires a separate design because live PTY processes cannot be reconstructed
+from the session transcript.
+
+Execution-oriented Cybersecurity roles must use this existing persistent
+terminal architecture for interactive security workflows. Typical interaction:
+
+```text
+start terminal
+  → write command
+  → receive partial output
+  → wait/read more
+  → write follow-up input
+  → send signal if required
+  → continue
+```
+
+That covers tools that take a long time, stream continuously, prompt for
+input, need interruption, or maintain process/session state. Do not defer
+interactive PTY itself. Do not replace `ctx.terminals` to obtain this
+behavior.
 
 ### 3.11 Tasks, jobs, workflows, and subagents
 
@@ -409,8 +456,15 @@ Current limitations:
 - approval requests do not include structured arguments;
 - approval grants are one-shot;
 - there is no generic target/CIDR/path policy;
-- arbitrary shell content is too expressive for reliable target extraction;
+- arbitrary shell content is too expressive for reliable target extraction,
+  so command-string parsing must not be treated as engagement-scope
+  enforcement;
 - same-process plugins remain trusted code.
+
+Structured tools can still declare typed effects and targets before
+execution. Arbitrary Bash/PTY must instead be constrained by process policy
+and the isolated execution provider, including network-level enforcement as
+that provider matures.
 
 ### 3.13 Profiles, bundles, presets, and roles
 
@@ -447,7 +501,8 @@ The following are `REUSE` decisions:
 - pre-execute policy, approval, guards, timeout wrapper, and sandbox
   escalation;
 - filesystem, subprocess, shell, sandbox, terminal, Web, and code-runtime
-  capabilities;
+  capabilities, including generic Bash, persistent Bash/PTY, and jobs reused
+  by Cybersecurity rather than replaced;
 - MCP tool import;
 - jobs, todos, goals, workflows, and subagents;
 - the `standard` preset as general/coding behavior.
@@ -465,15 +520,27 @@ strategy.
 4. Tool definitions do not declare generic effects or structured targets.
 5. Current approval/guard configuration cannot express reusable target-aware
    domain policy without tool-name-specific listeners.
-6. The local sandbox does not enforce network egress boundaries.
+6. The local sandbox does not enforce network egress boundaries. Filesystem
+   sandboxing is not network isolation.
 7. Arbitrary shell and terminal commands cannot be proven inside an
-   engagement target scope by parsing command strings.
-8. Persistent terminals lack resize and restart durability.
-9. The Web seam supplies search/fetch, not browser automation.
-10. Agent-team dependency tasks remain experimental.
-11. DeepSeek-first model defaults and branding exist, although adapters and
+   engagement target scope by parsing command strings. Pipelines, interpreters,
+   curl, proxychains, environment variables, DNS, scripts, subprocesses,
+   redirections, and nested shells can all hide destinations. Scope
+   enforcement for arbitrary execution must occur at the execution-provider
+   and network boundary, not by inferring every target from the command
+   string. This is not a reason to disable Bash or PTY.
+8. There is not yet a composed Cyber Execution Environment: pinned security
+   binaries, container/sandbox identity, network namespace, destination
+   allowlist, DNS/egress policy, and audit correlation of that environment.
+   Existing shell, subprocess, sandbox, terminal, and jobs services are the
+   composition surface.
+9. Persistent terminals lack resize and restart durability. The existing PTY
+   is sufficient for the first Cybersecurity implementation.
+10. The Web seam supplies search/fetch, not browser automation.
+11. Agent-team dependency tasks remain experimental.
+12. DeepSeek-first model defaults and branding exist, although adapters and
     configuration are already provider-neutral.
-12. Public APIs are pre-stable, increasing upstream merge and migration risk.
+13. Public APIs are pre-stable, increasing upstream merge and migration risk.
 
 ## 6. Target architecture
 
@@ -498,6 +565,7 @@ flowchart TB
     fs[Filesystem]
     shell[Shell_and_Subprocess]
     terminal[Persistent_Terminal]
+    jobs[Jobs_and_Signals]
     web[Web_and_Future_Browser]
     mcp[MCP_Tool_Provider]
     tasks[Todos_Jobs_Workflows]
@@ -505,10 +573,18 @@ flowchart TB
   end
 
   subgraph policies [Policies]
-    restriction[Tool_Visibility]
-    effects[Effect_and_Target_Policy]
+    restriction[Role_Tool_Visibility]
+    effects[Structured_Effect_and_Target_Policy]
     approval[Approval]
     sandbox[Sandbox_and_Permissions]
+    process[Process_Policy]
+  end
+
+  subgraph execution [Cyber_Execution_Environment]
+    provider[Composed_Execution_Provider]
+    image[Pinned_Security_Tool_Image]
+    net[Network_Namespace_and_Egress]
+    scope[Authorized_Target_Scope]
   end
 
   subgraph domains [Domain Packs]
@@ -520,6 +596,7 @@ flowchart TB
   domains --> prompt
   domains --> tools
   domains --> policies
+  domains --> execution
   agent --> prompt
   agent --> session
   agent --> llm
@@ -527,6 +604,9 @@ flowchart TB
   surface --> tools
   tools --> policies
   policies --> capabilities
+  capabilities --> execution
+  execution --> net
+  net --> scope
   llm --> deepseek
   llm --> openai
   llm --> other
@@ -534,6 +614,117 @@ flowchart TB
 
 The core must not import or branch on Cybersecurity, Coding, Pentesting, or
 Data Science.
+
+### 6.1 Cybersecurity execution model
+
+Do not solve security by removing agent capability. The intended posture is
+high agent capability plus strong execution boundaries, not weak agent
+capability because policy cannot understand a command.
+
+The intended autonomous tool-use loop is:
+
+```text
+LLM
+  → Bash / Persistent Bash / PTY
+  → real CLI security tools
+  → stdout / stderr / interactive output
+  → LLM
+  → reason / replan
+  → next command
+```
+
+Conceptually:
+
+```text
+Model
+  → Bash / Persistent PTY
+  → ToolRuntime
+  → Execution Policy
+  → Cyber Sandbox / Container
+  → Network / Egress Enforcement
+  → Authorized Target Scope
+```
+
+The model should be free to use the tools available inside the authorized
+environment. The environment determines what it can actually reach or modify.
+
+Bash, persistent Bash, and persistent terminal remain generic Harness
+capabilities. Cybersecurity configures:
+
+- which roles can see them;
+- which execution provider they use;
+- what sandbox is attached;
+- what network scope is allowed;
+- what tools are installed in the environment;
+- what approval and policy rules apply.
+
+The same Bash infrastructure is reused by Coding, Data Science, DevOps,
+Cybersecurity, and future domains. Do not create a Cyber-specific Bash
+replacement.
+
+The model must not be restricted to only pre-defined structured security
+tools. Structured tools are valuable and remain first-class, but they
+complement Bash/PTY rather than replace them.
+
+CLI through Bash is best for tool flexibility, new tools, complex pipelines,
+interactive workflows, and commands not yet wrapped:
+
+```text
+Bash → nmap
+Bash → nuclei
+Bash → ffuf
+Bash → httpx
+Bash → subfinder
+Bash → nikto
+Bash → curl
+Bash → openssl
+Bash → searchsploit
+```
+
+Structured tools are best for repeatable workflows, strong typed targets,
+machine-readable results, auditing, policy, UI, and automation. Examples
+include `NmapScan`, `HttpProbe`, and `VulnerabilityScan`. Do not require
+wrapping every security binary before the model can use it. The minimum
+requirement is that tools installed in the Cyber execution environment can
+be invoked through Bash or persistent PTY:
+
+```text
+LLM
+  → Bash("nmap ...")
+  → sandbox/container
+  → real nmap binary
+  → stdout
+  → LLM
+```
+
+Tool availability is role-specific, not globally disabled for the
+Cybersecurity domain. Execution-oriented roles may expose Bash, persistent
+Bash, persistent terminal/PTY, jobs/background execution, and
+signals/interruption. Read-only roles must not receive execution
+capabilities unless explicitly required.
+
+Privilege escalation remains controlled. Allowing Bash does not mean
+automatic unrestricted host access. Maintain explicit controls around
+sandbox escalation, host filesystem access, credentials, privileged
+containers, Docker socket access, host networking, root capabilities, and
+external write effects. The model may request escalation through the
+existing approval mechanism where applicable. Denial remains authoritative.
+Do not introduce bypass paths around existing approval or monotonic guards.
+
+Every shell or security execution continues through one path:
+
+```text
+model tool call
+  → ToolRuntime
+  → policy / approval / guards
+  → shell / terminal capability
+  → subprocess / sandbox provider
+  → process
+  → result
+```
+
+Never introduce `os.system(modelOutput)` or direct child-process creation
+inside a Cyber domain tool that bypasses the capability/provider layer.
 
 ## 7. Proposed package, plugin, and profile boundaries
 
@@ -589,10 +780,16 @@ packages/domain/cybersecurity/
       preset.yml
       agent.cordis.yml
       skills/
+    cybersecurity-analysis/
+      preset.yml
+      agent.cordis.yml
+      skills/
     cybersecurity-reporting/
       preset.yml
       agent.cordis.yml
       skills/
+  environments/
+    security-tools.manifest.yml
   tests/
 ```
 
@@ -600,9 +797,32 @@ The package name should follow the existing convention:
 `@deepseek-ai/dsh-domain-cybersecurity`, unless project ownership requires a
 different npm scope during implementation.
 
-The package is isolated from core. If it grows beyond one cohesive reference
-domain, tools and policy configuration can later be extracted into additional
+The package is isolated from core. It must not implement a private shell,
+PTY, or process-launch path. It registers role presets, optional structured
+tools, policy/approval configuration, and the Cyber Execution Environment
+composition described in Section 8.5.
+
+If it grows beyond one cohesive reference domain, tools, environment
+manifests, and policy configuration can later be extracted into additional
 domain packages.
+
+Initial role design is not uniform:
+
+- `cybersecurity-recon`: execution-enabled. Potential capabilities: Bash,
+  persistent Bash/PTY, jobs, read/search, structured network tools, and
+  subagents.
+- `cybersecurity-analysis`: primarily evidence analysis, with optionally
+  constrained execution.
+- `cybersecurity-reporting`: read-only unless explicitly justified. No
+  execution required by default.
+
+Do not assume every Cyber role gets identical permissions. Tool availability
+is role-specific.
+
+The environment manifest records which security binaries are required, their
+version pins where appropriate, and how readiness is checked. It is not a
+new core abstraction. The binaries themselves live in the execution image or
+sandbox, not as a catalog of mandatory structured adapters.
 
 ### 7.5 Generic policy package
 
@@ -619,14 +839,16 @@ packages/guard/tool-effect-policy/
   README.md
 ```
 
-It remains opt-in and is mounted by strict domain presets or deployment
-profiles, not by the base bundle initially.
+It remains opt-in and is mounted by domain presets or deployment profiles
+that require structured effect/target policy, not by the base bundle
+initially. Execution-capable Cybersecurity roles may mount it for structured
+tools without using it as a command-string parser for Bash.
 
 ### 7.6 Host profile versus domain preset
 
 - `web`, `headless`, and `sdk` remain host/application profiles.
-- `standard`, `cybersecurity-recon`, and `cybersecurity-reporting` are
-  per-agent domain/role presets.
+- `standard`, `cybersecurity-recon`, `cybersecurity-analysis`, and
+  `cybersecurity-reporting` are per-agent domain/role presets.
 - A custom `cybersecurity` host profile may layer base + Web + domain bundle
   and select a cyber default, but it does not introduce a new runtime concept.
 
@@ -748,6 +970,175 @@ Every decision is recorded as a non-model-visible `policy/evaluated` session
 event correlated by call ID. Sensitive values must be redacted before
 persistence.
 
+Structured tools and arbitrary shell do not share the same target-enforcement
+mechanism. See Section 8.6.
+
+### 8.5 Cyber Execution Environment
+
+The Cyber Execution Environment is an architectural composition, not a new
+core abstraction by default. Prefer existing sandbox, subprocess, shell,
+terminal, and jobs services.
+
+Conceptually:
+
+```text
+Cyber Agent
+  → Shell / Terminal tool
+  → Cyber Execution Provider
+  → OCI container / sandbox
+  → security tool image
+```
+
+The composed provider should eventually support:
+
+- pinned security binaries;
+- filesystem isolation;
+- network policy;
+- resource limits;
+- environment scrubbing;
+- process lifecycle;
+- PTY support;
+- stdout/stderr streaming;
+- background jobs;
+- signal handling;
+- audit correlation.
+
+Investigate how much of this already exists upstream before proposing new
+code. The audited Harness already provides:
+
+- model-facing Bash and `ctx.shell`;
+- sandboxed shell providers;
+- persistent terminal support and model-facing persistent Bash;
+- subprocess abstraction with explicit argv and environment scrubbing;
+- jobs and background processes;
+- cancellation and timeouts;
+- sandbox policies;
+- the canonical tool execution pipeline.
+
+Reuse them. Do not create another shell framework.
+
+A dedicated Cyber execution-provider type is justified only if composition
+cannot express a pinned security-tool image, network namespace or destination
+allowlist, DNS/egress policy, or environment identity in audit records. If a
+new provider is required, it still implements the existing subprocess, shell,
+and terminal service contracts.
+
+Binary lifecycle for the first implementation:
+
+1. Install representative security CLI tools into the execution image or
+   sandbox via a version-pinned manifest.
+2. Check readiness: binary exists, is executable, is on PATH, and reports an
+   expected version where pinning applies.
+3. Expose those binaries to the generic shell/PTY environment.
+4. Execute them only through the existing subprocess/sandbox stack.
+5. Fail closed if a mandatory binary is missing. Do not fake tool output.
+
+Representative tools the environment should eventually support include
+`nmap`, `nuclei`, `httpx`, `subfinder`, `ffuf`, `nikto`, `curl`, `openssl`,
+`searchsploit`, and other authorized security tools. The first increment
+does not need a dedicated structured adapter for each tool. It does need at
+least one real CLI security binary executable through Bash or persistent
+PTY.
+
+Isolation is staged and must not be over-claimed:
+
+- Stage A, required for Phase 4: local or container-controlled execution
+  against explicitly authorized lab targets. This proves functional
+  capability.
+- Stage B, Phase 6: network namespace plus destination controls.
+- Stage C, later: stronger DNS and egress enforcement. A production-grade
+  egress proxy may remain deferred.
+
+Do not claim production-grade network isolation until provider enforcement
+proves it. Do not block shell functionality completely while those
+guarantees are developed.
+
+### 8.6 Two enforcement paths
+
+Keep this conclusion: arbitrary shell strings cannot be reliably parsed to
+determine all possible network targets. Commands can use shell pipelines,
+Python, curl, proxychains, environment variables, DNS, scripts, subprocesses,
+redirections, and nested shells.
+
+Do not use this sequence as the security boundary:
+
+```text
+parse arbitrary Bash
+  → attempt to infer every target
+  → allow / deny
+```
+
+Document two enforcement paths. Both still pass through the canonical
+`ToolRuntime`.
+
+Structured tool path:
+
+```text
+tool args
+  → typed effects
+  → target policy
+  → provider
+```
+
+Example: `NmapScan(target="10.10.10.5")` can declare `network.scan` with
+`target=10.10.10.5` and be rejected before execution.
+
+General shell path:
+
+```text
+command
+  → process policy
+  → isolated execution provider
+  → network-level enforcement
+```
+
+Example: `Bash(command="...")` must not pretend that command parsing provides
+equivalent guarantees. A command may request any target. Only authorized
+destinations should be reachable from the runtime.
+
+The Cyber Execution Provider conceptually owns:
+
+```text
+Cyber Execution Provider
+  ├── filesystem isolation
+  ├── process isolation
+  ├── network namespace
+  ├── egress control
+  ├── target allowlist
+  ├── DNS policy
+  └── resource limits
+```
+
+Process policy for Bash/PTY may include timeouts, cancellation, resource
+limits, sandbox mode, approval for escalation, and role-scoped tool
+visibility. It does not include a general command-string target extractor.
+
+### 8.7 Evidence capture
+
+Real shell execution must feed the Harness evidence and audit model from the
+beginning. Executions retain at least:
+
+- agent;
+- tool call id;
+- command;
+- execution environment;
+- timestamp;
+- exit status;
+- stdout;
+- stderr;
+- timeout/cancellation state;
+- sandbox state;
+- policy/approval decision.
+
+Reuse existing session events, tool results, and policy audit records where
+they already capture these facts. Add host-only fields only where the current
+result/audit shape cannot identify the execution environment or sandbox
+state.
+
+Cyber-specific structured evidence extraction may happen later. Raw execution
+provenance must exist from the beginning. Do not make evidence parsing block
+the shell execution capability.
+
 ## 9. Change classification
 
 The required preference order is:
@@ -767,7 +1158,10 @@ The required preference order is:
 - `ToolRuntime` scoped model surface;
 - `ToolDefinition` host-only effects;
 - existing policy pipeline with an effect-policy plugin;
-- session events with policy audit records.
+- session events with policy audit records and raw shell/PTY provenance;
+- existing sandbox, subprocess, shell, and terminal providers as needed to
+  compose the Cyber Execution Environment and later Stage B/C network
+  controls.
 
 ### EXTRACT
 
@@ -778,8 +1172,15 @@ Cybersecurity package contains a demonstrably reusable provider-neutral unit.
 
 - domain-pack convention and documentation;
 - opt-in generic tool-effect-policy plugin;
-- isolated Cybersecurity reference package and role presets;
-- one structured `cyber_http_probe` domain tool.
+- isolated Cybersecurity reference package and role-specific presets;
+- Cyber Execution Environment composition over existing sandbox, subprocess,
+  shell, terminal, and jobs services;
+- representative real security-CLI execution through generic Bash/PTY;
+- optional structured security tools that complement shell.
+
+A dedicated execution-provider type is `NEW` only if investigation shows
+existing providers cannot compose the required image, isolation, or audit
+identity. Prefer `EXTEND` of current sandbox/subprocess providers.
 
 ### REPLACE
 
@@ -801,7 +1202,10 @@ See Section 15.
 7. Verify profile unload returns the roster and behavior to baseline.
 8. Preserve old sessions and SDK wire behavior; add migrations only if a
    serialized existing shape changes.
-9. Do not expose deferred unsafe execution through documentation or defaults.
+9. Do not document deferred privileged capabilities as if they were enabled.
+   Execution-capable Cybersecurity roles may expose generic Bash, persistent
+   PTY, and installed security CLIs. Do not claim production-grade network
+   isolation before a provider enforces it.
 
 ## 11. Ordered implementation phases
 
@@ -1029,7 +1433,10 @@ without weakening existing policy.
 Why it is needed:
 
 Name-only restrictions cannot express network, credential, delegation,
-interactive process, or target scope.
+interactive process, or target scope. Structured tools can declare typed
+targets. Shell and PTY tools declare process effects. Command-string parsing
+is not a substitute for either, and must not be used to hide Bash from
+execution-capable roles.
 
 Existing code involved:
 
@@ -1049,7 +1456,9 @@ Files/packages likely affected:
 
 - core tools types/schema/tests;
 - [`packages/guard/tool-effect-policy`](../../packages/guard/tool-effect-policy);
-- first-party annotations only for tools used by strict profiles;
+- first-party annotations for tools used by effect-aware profiles, including
+  `process.execute` / `process.interactive` on generic shell and terminal
+  tools without parsing command strings into network targets;
 - session event types and SDK snapshots;
 - pipeline/policy documentation.
 
@@ -1060,9 +1469,11 @@ The `ToolEffect` and policy contracts in Section 8.
 Migration strategy:
 
 - legacy tools remain valid;
-- non-strict profiles do not mount the policy;
-- strict profiles classify undeclared tools as `tool.opaque`;
-- annotate first-party tools incrementally.
+- profiles that do not mount the policy remain unchanged;
+- effect-aware profiles classify undeclared tools as `tool.opaque`;
+- annotate first-party tools incrementally;
+- generic Bash and terminal tools declare process effects, not parsed
+  network targets.
 
 Backward compatibility impact:
 
@@ -1075,7 +1486,9 @@ Backward compatibility impact:
 Security implications:
 
 - effects resolve after argument snapshot/validation and before approval;
-- malformed or unknown targets fail closed in strict mode;
+- malformed or unknown structured targets fail closed in effect-aware mode;
+- Bash/PTY are not denied merely because a command string cannot be parsed
+  into a complete target list;
 - deny always wins;
 - no policy rewrites arguments;
 - no command-string parser is treated as scope enforcement;
@@ -1087,7 +1500,8 @@ Tests required:
 - metadata non-leakage;
 - allow/deny/ask and deny precedence;
 - missing policy and opaque tools;
-- path, hostname, IP, and CIDR matching;
+- path, hostname, IP, and CIDR matching for structured tools;
+- shell/PTY tools are not scoped by command-string target extraction;
 - DNS-rebinding assumptions;
 - sandbox environment conditions;
 - timeout/cancel races;
@@ -1097,89 +1511,161 @@ Tests required:
 
 Exit criteria:
 
-An out-of-scope call is denied before provider invocation, an in-scope approved
-call executes exactly once, every decision is auditable, and standard-profile
-snapshots are unchanged.
+An out-of-scope structured-tool call is denied before provider invocation.
+A shell/PTY call is not denied merely because targets cannot be parsed from
+the command string. An in-scope approved call executes exactly once, every
+decision is auditable, and standard-profile snapshots are unchanged.
 
-### Phase 4 — Cybersecurity reference domain
+### Phase 4 — Cybersecurity execution-capable domain
 
 Classification: `NEW` + `REUSE`
 
 Goal:
 
-Prove domain composition with isolated Cybersecurity roles while preserving
-general/coding behavior.
+Prove a real Cybersecurity execution loop: an execution-enabled role uses
+generic Bash or persistent Bash/PTY to run a real security CLI binary in a
+controlled environment, the model receives real stdout/stderr, and the model
+makes a subsequent tool decision. Preserve general/coding behavior.
+
+This phase is not merely one structured `cyber_http_probe`. Structured tools
+remain useful and may be included, but they complement the shell path.
 
 Why it is needed:
 
-A concrete vertical must exercise prompts, roles, skills, tools, policies,
-capabilities, and bundle/profile composition.
+The Cybersecurity domain must support autonomous tool use against real CLI
+security tools. A structured-only proof would understate the product goal and
+would solve security by removing capability.
 
 Existing code involved:
 
 - bundles and package plugins;
 - registered preset roots;
 - persona/system-prompt/skills;
-- typed tools and `ctx.web`;
+- generic Bash, persistent Bash, `ctx.shell`, `ctx.subprocess`, `ctx.terminals`,
+  `ctx.jobs`, cancellation, timeouts, and sandbox policy;
+- typed tools and optional `ctx.web`;
 - filesystem, todos/jobs, and subagents;
-- sandbox, restrictions, and effect policy.
+- restrictions, approval, and effect policy.
 
 Exact architectural seam:
 
 Add `@deepseek-ai/dsh-domain-cybersecurity` as a normal bundle/plugin. It
-registers its package-owned preset root and composes only existing generic
-services.
+registers its package-owned preset root, role-specific tool visibility, and a
+composed Cyber Execution Environment over existing generic services. It does
+not add a second shell or PTY framework.
 
 Files/packages likely affected:
 
 - [`packages/domain/cybersecurity`](../../packages/domain/cybersecurity);
 - custom profile fixture/example;
+- execution-environment manifest and readiness checks;
+- optional `EXTEND` of an existing sandbox/subprocess provider if image
+  composition cannot be expressed by configuration alone;
 - domain documentation and tests.
 
 New contracts:
 
-No core contract. The package adds:
+No required new core contract. The package adds:
 
-- `cybersecurity-recon` role preset;
-- `cybersecurity-reporting` role preset;
-- one typed `cyber_http_probe` tool with structured URL/method input, bounded
-  evidence output, timeout, cancellation, and a `network.connect` target.
+- `cybersecurity-recon` execution-enabled role preset with Bash, persistent
+  Bash/PTY, jobs, read/search, optional structured network tools, and
+  subagents;
+- `cybersecurity-analysis` evidence-analysis role with optionally constrained
+  execution;
+- `cybersecurity-reporting` read-only role unless explicitly justified;
+- a composed Stage A Cyber Execution Environment: local or container
+  controlled execution, pinned representative security binaries, readiness
+  checks, filesystem/process isolation already provided by the sandbox, and
+  authorized local lab target scope;
+- at least one real security CLI binary (for example `nmap` or an equivalent
+  authorized tool) invoked through generic Bash or persistent PTY;
+- optional structured tools such as `cyber_http_probe` / `NmapScan` that
+  declare typed effects and targets;
+- raw execution provenance into the existing audit/session model.
 
 Migration strategy:
 
 Install the bundle into a custom profile or add it to an existing Web profile.
-Only the custom cyber profile selects a cyber default.
+Only the custom cyber profile selects a cyber default. Development and test
+profiles operate only against explicitly authorized local lab targets. Stage B
+and C network isolation is not required to start this phase.
 
 Backward compatibility impact:
 
-The package is opt-in. Loading/unloading it changes only its preset roster and
-agent scopes. `standard` remains unchanged.
+The package is opt-in. Loading/unloading it changes only its preset roster,
+agent scopes, and attached execution environment. `standard` remains
+unchanged. Generic Bash/PTY remain available to non-cyber roles according to
+their existing presets.
 
 Security implications:
 
-- engagement scope is machine-enforced configuration, not prompt text;
-- the probe executes through `ctx.web`;
-- strict cyber roles do not expose unrestricted Bash, PTY, scanners, arbitrary
-  MCP, credentials, or escalation;
-- reporting is read-only;
-- child agents inherit the exact parent preset/policy generation.
+- engagement scope for structured tools is machine-enforced typed policy, not
+  prompt text;
+- engagement scope for arbitrary shell is the execution provider and network
+  boundary, not command-string parsing;
+- Stage A may only reach authorized local/lab destinations; do not claim
+  production-grade egress control yet;
+- execution-capable roles may expose Bash, persistent PTY, jobs, signals, and
+  approved security binaries;
+- reporting remains read-only by default;
+- analysis remains constrained unless a later decision expands it;
+- credentials, privileged containers, Docker socket access, host networking,
+  root capabilities, host filesystem escape, and sandbox escalation remain
+  controlled by existing approval and monotonic guards;
+- child agents inherit the exact parent preset/policy generation;
+- unavailable mandatory enforcement for a chosen profile fails closed;
+- Stage A lab profiles must not mark Stage B/C network isolation as
+  mandatory; doing so would fail closed and block required shell capability;
+- missing mandatory binaries fail closed; output is never faked.
 
 Tests required:
 
 - prompt section ownership and order;
 - role discovery/mount/disposal;
-- tool visibility and policy scope;
-- structured evidence bounds;
-- timeout and cancellation;
+- role-specific tool visibility: recon has Bash/PTY/jobs; reporting does not
+  unless justified; analysis is more constrained than recon by default;
+- readiness check for at least one real security CLI binary;
+- end-to-end loop against a safe authorized local test target:
+
+  ```text
+  Cyber agent
+    → real Bash / persistent Bash
+    → real security binary in controlled environment
+    → real command output
+    → LLM receives result
+    → LLM makes a second tool decision
+  ```
+
+- real stdout/stderr reach the model; do not stub the binary's output;
+- persistent terminal interaction: write, partial output, follow-up input,
+  and signal/interrupt where the existing PTY supports it;
+- timeout, cancellation, and job/background behavior through the normal
+  provider path;
+- no domain-local `os.system` or raw child-process bypass;
+- raw execution provenance (command, environment, exit status, stdout/stderr,
+  timeout/cancel, sandbox state, policy/approval);
+- structured-tool target denial still occurs before provider invocation;
 - subagent inheritance;
 - profile isolation;
 - no `standard` snapshot change.
 
 Exit criteria:
 
-One host can create standard and cyber agents with distinct scoped behavior; an
-allowed local HTTP target succeeds, a disallowed target never reaches the
-provider, and unloading Cybersecurity restores the original roster.
+- an execution-enabled Cybersecurity role can call the real Bash tool;
+- persistent Bash/PTY is available to an appropriate cyber role;
+- at least one real security CLI binary executes through the normal
+  provider path;
+- real stdout/stderr reach the model;
+- the model can choose a subsequent action based on that output;
+- no direct process-launch bypass exists outside the capability/provider
+  architecture;
+- execution remains auditable;
+- standard/general agents remain unaffected;
+- read-only cyber roles remain appropriately restricted;
+- unloading Cybersecurity restores the original roster.
+
+Distinguish functional capability, which this phase must prove, from
+production-grade network isolation, which this phase must not claim.
 
 ### Phase 5 — Cross-layer verification and compatibility
 
@@ -1219,7 +1705,8 @@ Files/packages likely affected:
 
 New contracts:
 
-None beyond Phases 1–4.
+None beyond Phases 1–4. Phase 6 network-isolation work is a separate track
+and must not be treated as already proven here.
 
 Migration strategy:
 
@@ -1241,27 +1728,124 @@ Adversarial coverage must include:
 - MCP opaque classification;
 - nested dispatch;
 - cancellation races;
-- denied provider invocation;
+- denied provider invocation for structured out-of-scope targets;
 - environment scrubbing;
-- subagent/profile isolation.
+- subagent/profile isolation;
+- no domain-local process-launch bypass;
+- read-only cyber roles cannot reach Bash/PTY;
+- documentation does not claim Stage B/C network isolation.
 
 Tests required:
 
 - unit and coverage;
 - typecheck and lint;
 - integration:
-  `LLM → tool call → policy → provider → result → next LLM step`;
+  `LLM → Bash/PTY or structured tool → policy → provider → real result → next LLM step`;
 - sandbox/process tests;
 - profile isolation;
 - DeepSeek and OpenAI-compatible adapter tests;
 - TypeScript and Python SDK regressions;
-- snapshots and docs sync.
+- snapshots and docs sync;
+- no `standard` behavior change.
 
 Exit criteria:
 
 All gates pass or an unchanged upstream baseline failure is explicitly
 quarantined. No provider-specific or Cybersecurity-specific dependency enters
-core contracts.
+core contracts. Functional Cybersecurity execution is verified. Production-grade
+network isolation is not claimed.
+
+### Phase 6 — Cyber execution-provider network isolation
+
+Classification: `EXTEND` + possible `NEW` provider
+
+Goal:
+
+Promote execution-provider and network isolation from vague deferred work into
+an explicit staged implementation track. Strengthen destination control around
+the already enabled shell/PTY path without replacing that path.
+
+Why it is needed:
+
+Filesystem sandboxing alone is not network isolation. Arbitrary processes can
+open connections that structured target policy never saw. Command-string
+parsing cannot close that gap. The model may already use Bash; the runtime
+must eventually make unauthorized destinations unreachable.
+
+Existing code involved:
+
+- `ctx.sandbox`, `ctx.sandboxPolicy`, `ctx.subprocess`, `ctx.shell`,
+  `ctx.terminals`;
+- existing local and E2B sandbox providers;
+- environment scrubbing and resource limits;
+- effect policy for structured tools;
+- Cyber Execution Environment composition from Phase 4.
+
+Exact architectural seam:
+
+Prefer extending an existing sandbox/subprocess provider with network
+namespace, destination allowlist, and later DNS/egress controls. Add a new
+provider type only if those services cannot express the required isolation
+while still implementing the existing capability contracts.
+
+Staged delivery:
+
+- Stage B: network namespace plus destination controls for the Cyber
+  Execution Environment. Unauthorized destinations should be unreachable even
+  if a command names them.
+- Stage C: stronger DNS and egress enforcement. A production-grade egress
+  proxy and DNS pinning may remain deferred if Stage B already provides a
+  real destination boundary.
+
+Files/packages likely affected:
+
+- sandbox/subprocess provider packages;
+- Cyber Execution Environment composition;
+- policy/audit fields for network/sandbox identity;
+- isolation tests and documentation of remaining limitations.
+
+New contracts:
+
+Only if investigation proves a new provider interface is required. Otherwise
+extend existing sandbox/subprocess contracts with network-scope configuration
+and audit identity.
+
+Migration strategy:
+
+Keep Stage A local/lab execution working. Enable Stage B/C per deployment
+profile. Fail closed when a profile requires mandatory network enforcement
+that is unavailable. Do not silently fall back to host networking.
+
+Backward compatibility impact:
+
+`standard` and other non-cyber execution providers remain unchanged unless
+they opt into the same network controls. Existing structured-tool target
+policy remains in place.
+
+Security implications:
+
+- do not claim guarantees before they exist;
+- do not treat command parsing as equivalent to destination unreachability;
+- privileged host networking, Docker socket access, and unrestricted egress
+  remain denied by default;
+- denial and fail-closed behavior stay authoritative;
+- audit must record which isolation stage was actually in force.
+
+Tests required:
+
+- authorized local/lab destination remains reachable;
+- unauthorized destination is unreachable from Bash and PTY, not merely
+  denied by a parser;
+- structured-tool target policy still denies before invocation;
+- fail-closed when mandatory enforcement is unavailable;
+- `standard` profile isolation;
+- no bypass around approval or monotonic guards.
+
+Exit criteria:
+
+Stage B proves destination unreachability from arbitrary shell in the Cyber
+Execution Environment. Documentation states the remaining Stage C gaps
+explicitly. Functional shell capability from Phase 4 remains intact.
 
 ## 12. Test strategy
 
@@ -1275,11 +1859,15 @@ core contracts.
 - prompt section composition;
 - role/preset registration;
 - domain profile composition;
-- terminal capability remains unchanged.
+- existing terminal capability reused, not replaced;
+- shell/PTY role visibility;
+- security-binary readiness checks.
 
 ### 12.2 Integration
 
-Use a scripted canonical LLM adapter to produce deterministic tool calls:
+Use a scripted canonical LLM adapter to produce deterministic tool calls.
+
+Structured path:
 
 ```text
 LLM
@@ -1293,7 +1881,21 @@ LLM
   → next LLM request
 ```
 
-Assert both model-visible history and non-model-visible audit records.
+General shell path:
+
+```text
+LLM
+  → Bash / persistent Bash / PTY
+  → process policy / approval / guards
+  → Cyber Execution Provider
+  → real security CLI binary
+  → stdout / stderr / interactive output
+  → session event and raw provenance
+  → next LLM request
+```
+
+Assert both model-visible history and non-model-visible audit records. Do not
+fake CLI output.
 
 ### 12.3 Sandbox and process
 
@@ -1304,9 +1906,12 @@ Verify that domain tools cannot bypass:
 - network target policy for structured tools;
 - credential scrubbing;
 - scope restrictions;
-- cancellation/timeout quiescence.
+- cancellation/timeout quiescence;
+- role-scoped Bash/PTY visibility.
 
 Do not claim arbitrary shell network isolation until a provider enforces it.
+Phase 4 tests prove functional execution against authorized lab targets.
+Phase 6 tests prove destination unreachability.
 
 ### 12.4 Profile isolation
 
@@ -1345,17 +1950,30 @@ Use the upstream project’s supported commands after Phase 0 confirms them:
 flowchart TD
   model[Model_Decision] --> call[Durable_Tool_Call]
   call --> resolve[Canonical_Surface_Resolution]
-  resolve --> effects[Validated_Effects_and_Targets]
-  effects --> scope[Scope_Policy]
-  scope --> approval[Approval_when_required]
-  approval --> guard[Monotonic_Guards]
-  guard --> provider[Sandboxed_Capability_Provider]
-  provider --> result[Structured_Result_and_Evidence]
+  resolve --> runtime[Canonical_ToolRuntime]
+
+  runtime --> structured[Structured_Tool_Path]
+  structured --> effects[Typed_Effects_and_Targets]
+  effects --> scope[Target_Policy]
+  scope --> approvalS[Approval_when_required]
+  approvalS --> guardS[Monotonic_Guards]
+  guardS --> providerS[Capability_Provider]
+
+  runtime --> shell[General_Shell_Path]
+  shell --> process[Process_Policy]
+  process --> approvalB[Approval_when_required]
+  approvalB --> guardB[Monotonic_Guards]
+  guardB --> exec[Isolated_Execution_Provider]
+  exec --> net[Network_Level_Enforcement]
+
+  providerS --> result[Result_and_Evidence]
+  net --> result
   result --> audit[Session_and_Policy_Audit]
   audit --> model
 ```
 
-Prompts advise. Policy and providers enforce.
+Prompts advise. Policy and providers enforce. Structured target policy and
+network-level enforcement are complementary, not interchangeable.
 
 ### 13.2 Trust boundaries
 
@@ -1368,16 +1986,36 @@ Prompts advise. Policy and providers enforce.
 
 ### 13.3 Cybersecurity defaults
 
-- deny undeclared/opaque tools in strict roles;
-- allow only structured targets in configured engagement scope;
-- use bounded timeout/cancellation and evidence output;
-- keep arbitrary shell/PTY, scanners, credentials, and MCP off by default;
-- require provider-level egress controls before enabling unrestricted network
-  tooling;
+Execution-capable Cybersecurity roles may expose Bash, persistent PTY, and
+approved security binaries. Security boundaries are enforced through
+role-scoped tool visibility, ToolRuntime policy, sandboxing, execution
+providers, network/egress controls, authorization scope, approvals, and
+audit. Read-only Cybersecurity roles should not receive execution
+capabilities unless required.
+
+Defaults:
+
+- deny undeclared/opaque tools in effect-aware cyber roles;
+- structured tools allow only typed targets in configured engagement scope;
+- arbitrary shell is not scoped by parsing the command string;
+- use bounded timeout/cancellation and retain raw execution provenance;
+- credentials, privileged containers, Docker socket access, host networking,
+  root capabilities, and host filesystem escape remain off by default and
+  require existing approval if ever requested;
+- arbitrary security MCP servers remain off by default;
+- fail closed when a profile's mandatory enforcement is unavailable;
+- Stage A lab profiles must not mark Stage B/C isolation as mandatory;
+  profiles that require Stage B/C fail closed if that enforcement is
+  unavailable;
 - redact secrets from audit and model content;
 - preserve one execution path through the typed tool pipeline.
 
 There must never be an `os.system(modelOutput)` or equivalent path.
+
+Do not keep arbitrary shell, PTY, or scanners off merely because policy cannot
+parse the command. Stage A lab-scoped execution is allowed before Stage B/C
+network isolation exists, provided the limitation is documented and test
+targets are explicitly authorized.
 
 ### 13.4 Audit
 
@@ -1388,8 +2026,14 @@ The durable audit consists of:
 - canonical tool identity;
 - policy effects, targets, decision, policy ID, and reason;
 - approval outcome;
+- command, execution environment, and sandbox state for shell/PTY;
+- stdout, stderr, and exit status for process execution;
 - normalized tool result/evidence;
 - cancellation/timeout outcome.
+
+Raw provenance is required from the first Cybersecurity implementation.
+Structured cyber evidence extraction may be added later and must not block
+shell execution.
 
 ## 14. Backward compatibility strategy
 
@@ -1431,13 +2075,18 @@ The first increment intentionally defers:
 
 - Sentinel-R3 compatibility mappings until a stable public contract and
   sufficient license permission exist;
-- nmap, nuclei, httpx, subfinder, ffuf, and other scanner integrations;
+- a full scanner catalog and dedicated structured adapters for every
+  security binary;
 - arbitrary security MCP servers;
-- unrestricted Cybersecurity Bash and interactive PTY;
-- OCI/network-namespace/egress-proxy execution providers;
-- DNS pinning and provider-enforced CIDR routing;
 - credential broker/use policy enforcement;
-- terminal resize and restart durability;
+- production-grade egress proxy;
+- DNS pinning;
+- terminal resize and restart durability, if the existing PTY already
+  supports the Phase 4 interactive loop;
+- privileged exploitation environments, including privileged containers,
+  host networking, Docker socket access, and root capabilities;
+- distributed execution workers;
+- advanced supervisor orchestration;
 - browser automation beyond Web search/fetch;
 - persistent approval grants and structured approval payloads;
 - a stable generic dependency-DAG task registry;
@@ -1446,7 +2095,26 @@ The first increment intentionally defers:
 - effect-aware concurrency scheduling;
 - transitive static effect closure for all possible subagent providers.
 
-Deferral means disabled and documented, not partially enabled.
+The following are not deferred. They are required for the first meaningful
+Cybersecurity implementation:
+
+- generic Bash for execution-capable Cybersecurity roles, including
+  arbitrary command strings inside the authorized execution environment;
+- interactive persistent PTY / persistent Bash;
+- jobs, background execution, and signals/interruption;
+- basic real security CLI execution through the generic shell path;
+- representative nmap/httpx/nuclei-style CLI integration as an installed
+  binary, without requiring a structured adapter for each tool;
+- Stage A Cyber Execution Environment composition.
+
+Stage B network namespace and destination controls are an active Phase 6
+track, not an unnamed deferral. Stage C stronger DNS/egress enforcement may
+proceed after Stage B; a production-grade proxy may remain deferred.
+
+Deferred privileged capabilities stay disabled and documented. Deferred
+isolation guarantees must not be implied by enabling shell. Enabling Bash
+and PTY for execution-capable roles is required capability, not a partial
+enablement of deferred privileged access.
 
 ## 16. Risks and architectural tradeoffs
 
@@ -1474,8 +2142,14 @@ owned by ToolRuntime, scoped, collision-checked, and argument-preserving.
 ### Policy completeness
 
 Structured tools can declare reliable targets. Arbitrary command strings
-cannot. A conservative unknown effect may reduce capability, but permissive
-parsing would create a scope bypass.
+cannot. Parsing Bash to infer every destination is not a security boundary
+and would create a false sense of scope enforcement.
+
+The correct response is not to disable shell. Structured tools keep typed
+effect/target policy. Arbitrary shell keeps process policy plus isolated
+execution-provider and network-level enforcement. A conservative unknown
+structured effect may still fail closed. A general shell command is not
+converted into a structured target list.
 
 ### Network enforcement
 
@@ -1483,6 +2157,10 @@ A pre-execute allowlist can prevent a structured tool from being invoked with
 an out-of-scope target. It cannot stop an already allowed arbitrary process
 from opening another connection. Provider-level isolation is required for
 that case.
+
+Stage A may run against authorized local lab targets before that isolation
+exists. Stage B must make unauthorized destinations unreachable. Do not
+claim Stage B/C guarantees in Phase 4.
 
 ### Preset root lifecycle
 
@@ -1507,10 +2185,13 @@ with redaction and retention policy.
    - reversible preset-root registration;
    - consistent model-surface projection/resolution;
    - host-only effect metadata/execution projection.
-8. Record every core delta in the upstream project’s architecture/agent-note
+8. Prefer composing or extending existing sandbox, subprocess, shell, and
+   terminal providers for Cyber execution and network isolation. Do not add
+   a parallel process-launch stack.
+9. Record every core delta in the upstream project’s architecture/agent-note
    style.
-9. Keep tests adjacent to each modified upstream package.
-10. Re-run baseline and isolation suites after every upstream merge.
+10. Keep tests adjacent to each modified upstream package.
+11. Re-run baseline and isolation suites after every upstream merge.
 
 ## 18. Ideas already solved by DeepSeek Harness
 
@@ -1538,7 +2219,8 @@ These should be reused, not recreated.
 - "Role Registry" is the existing `AgentPresets` registry.
 - "Model Tool Surface" extends ToolRuntime; prompt-only mapping is unsafe.
 - "Canonical Tool Schema" already exists and remains provider-neutral.
-- "Interactive Terminal" already exists; only resize/durability are missing.
+- "Interactive Terminal" already exists; only resize/durability are missing,
+  and the existing PTY is the Cybersecurity interaction path.
 - "Capability/Provider separation" already exists across filesystem, shell,
   subprocess, sandbox, terminal, Web, jobs, and subagents.
 - "MCP provider" is already implemented that way.
@@ -1563,25 +2245,53 @@ The eventual minimum implementation is done only when:
   provider boundaries;
 - identity tool-surface behavior is unchanged;
 - a synthetic alias proves canonical execution without argument rewriting;
-- effect policy denies out-of-scope targets before provider invocation;
+- effect policy denies out-of-scope structured targets before provider
+  invocation;
 - policy cannot weaken restrictions, guards, approval, or sandbox behavior;
 - every Cybersecurity execution decision is auditable and redacted;
-- the reference package contributes at least recon and reporting roles;
-- one structured scope-checked capability executes end to end;
-- unrestricted unsafe capabilities remain disabled;
+- the reference package contributes at least recon, analysis, and reporting
+  roles with non-identical permissions;
+- an execution-enabled Cybersecurity role can call the real Bash tool;
+- persistent Bash/PTY is available to an appropriate cyber role;
+- at least one real security CLI binary executes through the normal
+  provider path;
+- its real stdout/stderr reaches the model;
+- the model can choose a subsequent action based on that output;
+- no direct process-launch bypass exists outside the capability/provider
+  architecture;
+- execution remains auditable, including command, environment, exit status,
+  stdout/stderr, timeout/cancel, sandbox state, and policy/approval;
+- read-only cyber roles remain appropriately restricted;
+- standard/general agents remain unaffected;
 - profile unload leaves general/coding behavior unchanged;
 - existing CLI, SDK, session replay, MCP, subagent, cancellation, concurrency,
   and standard-profile regression suites pass;
-- all phase exit criteria are satisfied in order;
+- all required Phases 0–5 exit criteria are satisfied in order for the
+  minimum functional implementation;
+- Phase 6 is required before claiming production-grade network isolation, not
+  before enabling shell, PTY, or real CLI execution;
 - documentation accurately describes both guarantees and limitations.
+
+Functional capability is distinct from production-grade network isolation.
+The minimum implementation is not complete without the shell/PTY/CLI loop.
+It is complete without Stage B/C only if documentation does not claim
+destination unreachability that the provider has not proven. Privileged host
+access, credential brokers, and related deferred capabilities remain
+disabled.
 
 ## 21. Immediate implementation order
 
 1. Phase 0: import and baseline upstream.
 2. Phase 1: reversible domain-preset root contribution.
 3. Phase 2: scoped model tool surface.
-4. Phase 3: effect-aware policy and audit.
-5. Phase 4: Cybersecurity reference package.
-6. Phase 5: full compatibility and security verification.
+4. Phase 3: effect-aware policy and audit, including separate structured and
+   shell enforcement paths.
+5. Phase 4: Cybersecurity execution-capable domain, Stage A environment, and
+   real CLI-through-Bash proof.
+6. Phase 5: full compatibility and security verification of functional
+   capability.
+7. Phase 6: execution-provider network isolation, Stage B then Stage C.
 
 No later phase begins until the preceding phase meets its exit criteria.
+Phase 6 must not be used to reopen a Phase 4 design that disables Bash or
+PTY.
