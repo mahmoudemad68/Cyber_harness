@@ -231,23 +231,25 @@ Those paths must survive the unrelated-histories merge. `docs/plans/` and
 `.cursor/` do not exist in upstream at the pinned commit, so they should
 apply cleanly. `README.md` will conflict; take upstream's file.
 
-## 10. Planned import
+## 10. Import execution
 
-Not yet executed at the time this record was first written.
+Recorded after the merge on `cursor/phase-0-upstream-foundation-b38e`:
 
-1. Feature branch `cursor/phase-0-upstream-foundation-b38e` from current
-   `main`.
+1. Feature branch `cursor/phase-0-upstream-foundation-b38e` from `main`
+   `c36607b22e95414bd34ccc37d96d1018eb6feff4`.
 2. Remote `upstream` → `https://github.com/deepseek-ai/deepseek-harness.git`.
-3. `git fetch` of upstream `master` with full history.
-4. `git merge --allow-unrelated-histories c291e7961a515f6d7af9304e7fd1d257929aef26`.
-5. Resolve `README.md` by keeping upstream README.
-6. Preserve `docs/plans/general-agent-harness.md` and
-   `.cursor/rules/general-agent-harness.mdc`.
-7. Do not flatten upstream history, submodule it, snapshot-copy it, rewrite
-   `main`, or force-push `main`.
+3. `git fetch --tags upstream master` retrieved 417,482 objects and 16,511
+   commits ending at the pinned SHA.
+4. `git merge --allow-unrelated-histories --no-commit c291e7961a515f6d7af9304e7fd1d257929aef26`.
+5. The only conflict was `README.md` (add/add). Resolved by keeping the
+   upstream README.
+6. Preserved `docs/plans/general-agent-harness.md`,
+   `.cursor/rules/general-agent-harness.mdc`, and this inspection record.
+7. Merge commit `5d009a3027724cdca0e8e11fdce4fea503f4aae7` has parents
+   `e815acddc8b5226bd5155a93b0f5aee3f9116d53` (this project) and
+   `c291e7961a515f6d7af9304e7fd1d257929aef26` (upstream).
 
-The merge commit SHA, install results, and baseline test results belong in
-`docs/upstream-sync.md` after the import.
+Install results and baseline test results belong in `docs/upstream-sync.md`.
 
 ## 11. Phase 0 custom-runtime prohibition
 
