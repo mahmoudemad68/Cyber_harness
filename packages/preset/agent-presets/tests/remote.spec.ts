@@ -22,6 +22,7 @@ import { remoteErrorOf, type RemoteFailure } from '@deepseek-ai/dsh-typert-proto
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import AgentPresets, { COMPOSITION_FILE, METADATA_FILE } from '@deepseek-ai/dsh-agent-presets'
 import type { Config } from '@deepseek-ai/dsh-agent-presets'
+import * as authoring from '../src/authoring.ts'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
@@ -226,7 +227,7 @@ describe('reading one composition', () => {
   it('raises an unrelated read failure exactly as it was thrown', async () => {
     const ctx = await harness()
     const thrown = new Error('disk failed')
-    vi.spyOn(ctx.agentPresets, 'read').mockRejectedValueOnce(thrown)
+    vi.spyOn(authoring, 'readComposition').mockRejectedValueOnce(thrown)
 
     await expect(ctx.agentPresets.readDocument('standard')).rejects.toBe(thrown)
   })

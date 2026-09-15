@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用 `dsh-agent-presets` 为每个会话提供某个 preset 的 `agent.cordis.yml` 所指定的工具、提示词段落与 skill（技能）。一个进程可以运行使用不同 preset 的会话，同时保持它们的状态相互隔离。preset 名单合并随附定义、已配置根目录与用户根目录，会报告 preset 无法启动的原因，也能通过复制现有 preset 创建本地 preset。部署与用户都可选择默认值；只有空会话可以切换 preset。请将每个自行编写的 preset 视为受信任配置，因为它会授予其所选插件的能力。
+使用 `dsh-agent-presets` 为每个会话提供某个 preset 的 `agent.cordis.yml` 所指定的工具、提示词段落与 skill（技能）。一个进程可以运行使用不同 preset 的会话，同时保持它们的状态相互隔离。preset 名单合并随附定义、已配置根目录、包贡献根目录与用户根目录，会报告 preset 无法启动的原因，也能通过复制现有 preset 创建本地 preset。部署与用户都可选择默认值；只有空会话可以切换 preset。请将每个自行编写的 preset 视为受信任配置，因为它会授予其所选插件的能力。
 
 ## 目录
 
@@ -33,7 +33,7 @@ kind: "package-reference"
 
 从 preset 组装的会话会运行该 preset `agent.cordis.yml` 所列插件：它的工具、提示词段落与 skill。加入同一 preset 的会话共享一份已安装的组装，且各会话的状态彼此隔离。subagent 会加入其父方的组装，因此它看到的工具与提示词段落和创建它的 agent 相同。
 
-可选的 preset 来自三类来源：本包 `presets/` 下随包交付的 preset、已配置的根目录，以及你自己放在 `<dshHome>/.agent-presets` 下的 preset。选择器会展示每个 preset 的显示名与描述；组装无法加载的 preset 会连同原因一起列出而不是被隐藏，因此你能看到该修什么或删什么。
+可选的 preset 来自四类来源：本包 `presets/` 下随包交付的 preset、已配置的根目录、已安装的包通过 `registerRoot` 注册的目录，以及你自己放在 `<dshHome>/.agent-presets` 下的 preset。选择器会展示每个 preset 的显示名与描述；组装无法加载的 preset 会连同原因一起列出而不是被隐藏，因此你能看到该修什么或删什么。
 
 ### 最小配置
 
@@ -59,6 +59,12 @@ kind: "package-reference"
 
 随附根目录前置在全部已配置根目录之前，因此即使补丁替换 roster 配置，内置集合仍然可用并赢得重复 id。`includeShippedRoot: false` 会为完全自行提供 preset 的部署移除内置集合。`includeUserRoot: false` 会移除推导出的可写根目录；钉住确切 roster 的测试会同时关闭两个推导根目录。
 
+### 包贡献的根目录
+
+注入 `agentPresets` 的已安装插件调用 `registerRoot({ path, trust })`，在其存活期间追加一个扫描目录。该目录排在随附根目录与 `config.roots` 之后、推导出的用户根目录之前。返回的 disposer 只移除该目录；释放插件也会移除它。`list()` 与 `resolve()` 每次都会重新读取全部根目录。`copy()`、`remove()` 与 `readDocument()` 在调用开始时捕获该根目录列表，并在整个操作中沿用。没有任何贡献时，名单与从未调用 `registerRoot` 的组装相同。
+
+包贡献的根目录通常使用 `trust: 'system'`。排在推导出的 home 根目录之前的 `trust: 'user'` 贡献会成为可写创作根目录，因为创作写入该次复制或删除开始时捕获的列表中第一个 `user` 根目录。
+
 ### 显示选择器并选择默认 preset
 
 必填的 `default` 配置设定部署默认值。当组装中存在 settings 提供方时，本插件会注册 `agent-presets` 命名空间，并以 `{ default: config.default, modeSelectionEnabled: true }` 作为 base，因此既有的新建会话选择器会保持显示，除非用户主动关闭。Host 每次解析默认值都会读取这两个字段：`modeSelectionEnabled` 为 `false` 时，未显式指定 preset 的会话解析为 `config.default`，即使用户文档还保留其他 `default` 也会忽略它；该字段为 `true` 时，用户默认值才可覆盖部署值：
@@ -73,7 +79,7 @@ agent-presets:
 
 ### 创作 preset
 
-创作即复制：创建 preset 会复制某个既有 preset 的整个目录——组装、展示元数据、skill 目录与资产——放进第一个 `user` 根目录。副本保留来源的描述，但拥有自己的 id 与可选显示名，因此调用方从不提供组装文本，一次复制也不会授予名单尚未携带的任何能力。创建之后的一切都发生在 preset 自己的文件里。
+创作即复制：创建 preset 会复制某个既有 preset 的整个目录——组装、展示元数据、skill 目录与资产——放进该次复制开始时捕获的列表中第一个 `user` 根目录。副本保留来源的描述，但拥有自己的 id 与可选显示名，因此调用方从不提供组装文本，一次复制也不会授予名单尚未携带的任何能力。创建之后的一切都发生在 preset 自己的文件里。
 
 以下情况会拒绝复制：id 不符合 `[a-z0-9][a-z0-9-]*`（id 会成为目录名）、id 已被占用（复制从不覆写）、或来源未知。删除只移除本地创作的 preset；随部署提供的 preset 不可删除。已在被删除 preset 上运行的会话会继续运行。
 
@@ -106,7 +112,7 @@ agent-presets:
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 服务入口：`Config` schema、settings 命名空间、名单 API、常驻挂载协调 |
+| [`src/index.ts`](src/index.ts) | 服务入口：`Config` schema、settings 命名空间、含 `registerRoot` 的名单 API、常驻挂载协调 |
 | [`src/discovery.ts`](src/discovery.ts) | 文件系统发现：根目录扫描、健康检查、id 校验、排序 |
 | [`src/composition-inventory.ts`](src/composition-inventory.ts) | 面向插件清单表面的压平组合行：文件读取（求值 disabled 门）与挂载读取（携带 fiber 状态） |
 | [`src/preset.ts`](src/preset.ts) | 词汇体系：preset id 规则、`AgentPreset` 与 `PresetRoot`、错误类型 |
@@ -152,6 +158,7 @@ agent-presets:
 - [会话包映射](../../session/README.zh.md)——preset 切换所追加的持久会话记录。
 - [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-agent-presets)——每个受支持配置字段及其源声明。
 - [按会话组装 agent preset 的 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-03-per-session-agent-presets.zh.md)——设计理由与备选方案。
+- [可逆的 preset 根目录贡献](../../../.agents/notes/implemented/architecture/2026-09-15-reversible-preset-root-contribution.zh.md)——已安装的包如何追加扫描目录。
 
 -----
 
