@@ -147,8 +147,9 @@ without rewriting workflows from scratch.
 3. **`.github/workflows/e2e.yml`** — job `if` also requires the live-API
    secret on this fork.
 4. **`.github/workflows/build-exe-for-python-sdk.yml`** — live-API
-   preflight/run `if` skips this fork when the secret is empty; `exit 1`
-   remains in the POSIX script for DeepSeek.
+   preflight skips this fork when the key is empty inside the step script
+   (`GITHUB_REPOSITORY`); reusable workflows cannot use `secrets` in `if`.
+   `exit 1` remains in the POSIX script for DeepSeek.
 5. **`.github/workflows/build-preview-cloudflare.yml`** — upload/verify/comment
    skip on this fork when `CLOUDFLARE_API_TOKEN` is empty; `pnpm run build`
    still runs.
