@@ -67,7 +67,7 @@ No Sentinel source, prompts, or schemas were opened or copied.
 
 `REUSE` of discovery, first-root-wins, standing mounts, `composeFrom`, trust, and unmemoized `list()` / `resolve()` is the whole discovery and mount path.
 
-`EXTEND` is the constructor root list: keep shipped and `config.roots` as a frozen prefix, keep the derived user root as a frozen suffix, and hold a live array of contributed `PresetRoot` values between them. `registerRoot` pushes one slot through `this.ctx.effect` (caller fiber) and the disposer splices that slot. `list()`, `resolve()`, `get roots()`, authoring, and the empty-roster warning read the concatenated live list.
+`EXTEND` is the constructor root list: keep shipped and `config.roots` as a frozen prefix, keep the derived user root as a frozen suffix, and hold a live array of contributed `PresetRoot` values between them. `registerRoot` pushes one slot through `this.ctx.effect` (caller fiber) and the disposer splices that slot. `list()`, `resolve()`, `get roots()`, and the empty-roster warning read the concatenated live list. `copy()`, `remove()`, and `readDocument()` capture that list once at entry and use it for resolution, collision checks, writable-root selection, and mutation.
 
 `NEW` is not required: there is no second registry to introduce.
 
@@ -100,7 +100,7 @@ Semantics:
 - Host-only: not a `@Remote` method. Browser/SDK roster shapes stay as they are.
 - Identity default: zero contributions make `get roots()` equal to today's constructor-derived list.
 
-Authoring keeps `writableRoot`'s first-`user`-root rule on the live list. Package contributors use `trust: 'system'` unless they intend to become the writable root.
+Authoring keeps `writableRoot`'s first-`user`-root rule on the root list captured at the start of that `copy` or `remove`. Package contributors use `trust: 'system'` unless they intend to become the writable root. Public `list()` / `resolve()` stay unmemoized against the live concatenation; the service is not re-frozen globally.
 
 ## 7. `NEW` / `REPLACE`
 

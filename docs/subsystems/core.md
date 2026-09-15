@@ -487,7 +487,7 @@ Source: [`packages/core/agent-loop/src/index.ts`](../../packages/core/agent-loop
 
 Registry over the deployment's agent presets.
 
-Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every call so a preset authored while the process runs is visible immediately, and a preset deleted underneath a picker disappears from the next read.
+Discovery is unmemoized: `list()` and `resolve()` re-read the live concatenated roots on every call so a preset authored while the process runs is visible immediately, and a preset deleted underneath a picker disappears from the next read. `copy()`, `remove()`, and `readDocument()` capture that list once at entry and use it for every resolution, collision check, writable-root selection, and mutation in that call.
 
 ```ts cordis-catalog
 /**
@@ -623,6 +623,10 @@ async read(id: string): Promise<string>
 
 /**
  * One preset's composition text with the roster row it belongs to.
+ *
+ * Roster row and composition text come from one root list captured at
+ * entry, so a contribution that appears or disappears during the read
+ * cannot change which file is returned.
  * @param agentPreset - the preset id.
  * @returns the composition beside its trust and published metadata.
  * @throws {RemoteError} `gateway/bad-request` for an empty id, or
@@ -638,6 +642,10 @@ async read(id: string): Promise<string>
  * so the copy is exactly as loadable as its source and authoring grants no
  * capability the roster did not already carry. The copy is NOT mounted to
  * validate — a source that mounts today yields a copy that mounts today.
+ * Source resolution, the duplicate-id check, writable-root selection, and
+ * the directory copy all use the root list captured at the start of this
+ * call. A contribution registered or disposed while the call is in flight
+ * is visible to later {@link list} / {@link resolve} calls, not this one.
  * @param from - the preset the copy starts from; shipped presets are the
  * primary source, so any trust is accepted.
  * @param id - the new preset's id, which becomes its directory name.
@@ -661,6 +669,8 @@ async copy(from: string, id: string, name?: string): Promise<void>
 /**
  * Delete a locally authored preset.
  *
+ * Resolution, writable-root selection, and deletion all use the root list
+ * captured at the start of this call.
  * @param id - the preset id.
  * @throws when the preset is unknown or ships with the deployment.
  */

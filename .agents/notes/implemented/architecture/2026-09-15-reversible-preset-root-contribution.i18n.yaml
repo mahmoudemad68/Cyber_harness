@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-15-reversible-preset-root-contribution.md
-2026-09-15-reversible-preset-root-contribution.md: c11e2ae13c4677accd437c3ca225477bc7b7f991
-2026-09-15-reversible-preset-root-contribution.zh.md: 6be47b58efe68ad943d5d2c17231dc306fe1ed7b
+2026-09-15-reversible-preset-root-contribution.md: 12e3739901b5984960cc175bc438257a36f52d41
+2026-09-15-reversible-preset-root-contribution.zh.md: 935a0554d47735446e8064f9d3384a47270ba977

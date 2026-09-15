@@ -10,13 +10,13 @@ Status: implemented
 
 ## Decision
 
-`AgentPresets.registerRoot(root)` 把一条既有的 `PresetRoot` 追加到现有服务上的实时列表。扫描顺序是：若启用则先随附根目录，然后是 `config.roots`，然后是按注册顺序的贡献根目录，最后是启用时推导出的用户根目录。`list()` 与 `resolve()` 仍对该实时列表做无缓存的文件系统读取。
+`AgentPresets.registerRoot(root)` 把一条既有的 `PresetRoot` 追加到现有服务上的实时列表。扫描顺序是：若启用则先随附根目录，然后是 `config.roots`，然后是按注册顺序的贡献根目录，最后是启用时推导出的用户根目录。`list()` 与 `resolve()` 仍对该实时列表做无缓存的文件系统读取。`copy()`、`remove()` 与 `readDocument()` 在入口捕获该列表一次，并把它用于解析、冲突检查、可写根目录选择与变更，因此该次调用进行期间注册或释放的贡献不能改写它的目标。
 
 注册是调用方插件 fiber 上的 Cordis effect（`this.ctx.effect`）。返回的 disposer 只移除这一槽位；释放 fiber 也一样。常驻挂载与 `composeFrom` 不变：被移除的根目录从后续发现中消失，但已加入的 agent 继续使用其代际。
 
 该方法仅限宿主进程。它不是 Remote 端点。零贡献时，构造推导出的列表与从未调用 `registerRoot` 的 roster 相同。
 
-包贡献方使用 `trust: 'system'`，除非有意成为可写根目录。`writableRoot` 仍选取实时列表中第一个 `user` 根目录。
+包贡献方使用 `trust: 'system'`，除非有意成为可写根目录。`writableRoot` 仍选取该次创作调用开始时捕获的列表中第一个 `user` 根目录。
 
 已检查的接缝、为何 `EXTEND` 足够、以及为何不需要第二套注册表，见 [Phase 1 参考检查](../../../../docs/notes/phase-1-reference-inspection.md)。
 
@@ -40,4 +40,4 @@ Status: implemented
 
 ## Testing
 
-`packages/preset/agent-presets/tests/contributed-roots.spec.ts` 钉住排序、释放、Cordis 插件与 Loader 组装、无缓存文件系统读取、创作、常驻代际存活，以及经贡献根目录的挂载泄漏拒绝。既有的 shipped-root、user-root、discovery 与 mount 套件仍是无贡献时的基线。
+`packages/preset/agent-presets/tests/contributed-roots.spec.ts` 钉住排序、释放、Cordis 插件与 Loader 组装、无缓存文件系统读取、创作、常驻代际存活，以及经贡献根目录的挂载泄漏拒绝。`packages/preset/agent-presets/tests/authoring-root-snapshot.spec.ts` 钉住：在进行中的 `copy` / `remove` / `readDocument` 期间注册或释放贡献，不能改变该次调用的来源视图、重复检查、可写目标或删除目标，而随后的 `list()` / `resolve()` 仍看到实时列表。既有的 shipped-root、user-root、discovery 与 mount 套件仍是无贡献时的基线。

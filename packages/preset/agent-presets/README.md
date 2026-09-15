@@ -61,9 +61,9 @@ The shipped root is prepended before every configured root, so the built-in set 
 
 ### Package-contributed roots
 
-An installed plugin that injects `agentPresets` calls `registerRoot({ path, trust })` to add a scanned directory for its lifetime. The directory is scanned after the shipped root and `config.roots`, and before the derived user-authored root. The returned disposer removes only that directory; disposing the plugin removes it too. `list()` and `resolve()` re-read every root on each call. With no contribution, the roster matches a composition that never called `registerRoot`.
+An installed plugin that injects `agentPresets` calls `registerRoot({ path, trust })` to add a scanned directory for its lifetime. The directory is scanned after the shipped root and `config.roots`, and before the derived user-authored root. The returned disposer removes only that directory; disposing the plugin removes it too. `list()` and `resolve()` re-read every root on each call. `copy()`, `remove()`, and `readDocument()` capture that root list at the start of the call and keep it for the whole operation. With no contribution, the roster matches a composition that never called `registerRoot`.
 
-Package-contributed roots typically use `trust: 'system'`. A `trust: 'user'` contribution that precedes the derived home root is the writable authoring root, because authoring writes to the first `user` root in scan order.
+Package-contributed roots typically use `trust: 'system'`. A `trust: 'user'` contribution that precedes the derived home root is the writable authoring root, because authoring writes to the first `user` root in the list captured at the start of that copy or delete.
 
 ### Showing the picker and choosing its default
 
@@ -79,7 +79,7 @@ A client shows or hides selection by writing only `modeSelectionEnabled`; the [W
 
 ### Authoring presets
 
-Authoring is copy-only: creating a preset copies an existing preset's whole directory — composition, display metadata, skill directories, assets — into the first `user` root. The copy keeps the source's description but gets its own id and an optional display name, so no caller supplies composition text and a copy grants nothing the roster did not already carry. After creation, everything happens in the preset's own files.
+Authoring is copy-only: creating a preset copies an existing preset's whole directory — composition, display metadata, skill directories, assets — into the first `user` root of the list captured at the start of that copy. The copy keeps the source's description but gets its own id and an optional display name, so no caller supplies composition text and a copy grants nothing the roster did not already carry. After creation, everything happens in the preset's own files.
 
 A copy is refused when the id is not `[a-z0-9][a-z0-9-]*` (the id becomes a directory name), when the id is already taken (a copy never overwrites), or when the source is unknown. Deleting removes only locally authored presets; presets that ship with the deployment are not removable. A session already running on a deleted preset keeps running on it.
 

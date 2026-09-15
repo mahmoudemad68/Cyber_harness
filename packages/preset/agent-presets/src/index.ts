@@ -96,9 +96,12 @@ declare module '@deepseek-ai/cordis' {
 /**
  * Registry over the deployment's agent presets.
  *
- * Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every
- * call so a preset authored while the process runs is visible immediately,
- * and a preset deleted underneath a picker disappears from the next read.
+ * Discovery is unmemoized: `list()` and `resolve()` re-read the live
+ * concatenated roots on every call so a preset authored while the process
+ * runs is visible immediately, and a preset deleted underneath a picker
+ * disappears from the next read. `copy()`, `remove()`, and `readDocument()`
+ * capture that list once at entry and use it for every resolution, collision
+ * check, writable-root selection, and mutation in that call.
  */
 export class AgentPresets extends TypertRemoteService {
   static inject = ['loader', 'sessionProjections']
@@ -268,11 +271,58 @@ export class AgentPresets extends TypertRemoteService {
   }
 
   /**
+   * Discover presets from an explicit root list.
+   *
+   * Public {@link list} and {@link resolve} pass the live concatenated roots.
+   * A multi-step authoring or document-read call passes the list it captured
+   * at entry so a contribution registered or disposed while that call is in
+   * flight cannot change its source, duplicate check, writable destination,
+   * or deletion target.
+   * @param roots - roots in precedence order for this scan.
+   * @returns the presets, first-root-wins per id.
+   */
+  private async listFrom(roots: readonly PresetRoot[]): Promise<AgentPreset[]> {
+    return await discoverPresets(roots, this.harnessBase)
+  }
+
+  /**
+   * Return the preset named `wanted`, or the same not-found error as {@link resolve}.
+   * @param presets - one discovery result.
+   * @param wanted - the preset id.
+   * @returns the matching preset.
+   * @throws when `presets` contains no such id.
+   */
+  private requirePreset(presets: readonly AgentPreset[], wanted: string): AgentPreset {
+    const found = presets.find(preset => preset.id === wanted)
+    if (found === undefined) {
+      const available = presets.map(preset => preset.id)
+      throw new RemoteError(
+        'agent-preset/not-found',
+        `agent-presets: preset "${wanted}" not found (available: ${available.join(', ') || 'none'})`,
+        { agentPreset: wanted, available },
+      )
+    }
+    return found
+  }
+
+  /**
+   * Resolve one preset against an explicit root list.
+   * @param roots - the root list this operation captured at entry.
+   * @param id - the preset id, or `undefined` for {@link defaultId}.
+   * @returns the resolved preset.
+   * @throws when that list supplies no such id.
+   */
+  private async resolveFrom(roots: readonly PresetRoot[], id?: string): Promise<AgentPreset> {
+    const wanted = id ?? this.defaultId
+    return this.requirePreset(await this.listFrom(roots), wanted)
+  }
+
+  /**
    * Every preset the scanned roots currently supply.
    * @returns the presets, first-root-wins per id.
    */
   async list(): Promise<AgentPreset[]> {
-    return await discoverPresets(this.roots, this.harnessBase)
+    return await this.listFrom(this.roots)
   }
 
   /**
@@ -288,8 +338,10 @@ export class AgentPresets extends TypertRemoteService {
   async remoteExportList(): Promise<AgentPresetRoster> {
     // Keep the visible policy and marked default from the same settings
     // snapshot even when discovery yields while settings are hot-reloaded.
+    // Rows and `authorable` share the root list captured at entry.
+    const roots = this.roots
     const policy = this.selectionPolicy()
-    const presets = await this.list()
+    const presets = await this.listFrom(roots)
     return {
       presets: presets.map(preset => ({
         id: preset.id,
@@ -299,7 +351,7 @@ export class AgentPresets extends TypertRemoteService {
         ...preset.description === undefined ? {} : { description: preset.description },
         ...preset.broken === undefined ? {} : { broken: preset.broken },
       })),
-      authorable: this.authorable,
+      authorable: roots.some(root => root.trust === 'user'),
       modeSelectionEnabled: policy.enabled,
     }
   }
@@ -372,18 +424,7 @@ export class AgentPresets extends TypertRemoteService {
    * @throws when no scanned root supplies that id.
    */
   async resolve(id?: string): Promise<AgentPreset> {
-    const wanted = id ?? this.defaultId
-    const presets = await this.list()
-    const found = presets.find(preset => preset.id === wanted)
-    if (found === undefined) {
-      const available = presets.map(preset => preset.id)
-      throw new RemoteError(
-        'agent-preset/not-found',
-        `agent-presets: preset "${wanted}" not found (available: ${available.join(', ') || 'none'})`,
-        { agentPreset: wanted, available },
-      )
-    }
-    return found
+    return await this.resolveFrom(this.roots, id)
   }
 
   /**
@@ -571,6 +612,10 @@ export class AgentPresets extends TypertRemoteService {
 
   /**
    * One preset's composition text with the roster row it belongs to.
+   *
+   * Roster row and composition text come from one root list captured at
+   * entry, so a contribution that appears or disappears during the read
+   * cannot change which file is returned.
    * @param agentPreset - the preset id.
    * @returns the composition beside its trust and published metadata.
    * @throws {RemoteError} `gateway/bad-request` for an empty id, or
@@ -579,11 +624,12 @@ export class AgentPresets extends TypertRemoteService {
   @Remote('read')
   async readDocument(agentPreset: string): Promise<AgentPresetDocument> {
     validatePresetId(agentPreset, 'agentPreset')
-    const preset = await this.resolve(agentPreset)
+    const roots = this.roots
+    const preset = await this.resolveFrom(roots, agentPreset)
     return {
       agentPreset: preset.id,
       trust: preset.trust,
-      content: await this.read(preset.id),
+      content: await readComposition(preset),
       ...preset.name === undefined ? {} : { name: preset.name },
       ...preset.description === undefined ? {} : { description: preset.description },
     }
@@ -597,6 +643,10 @@ export class AgentPresets extends TypertRemoteService {
    * so the copy is exactly as loadable as its source and authoring grants no
    * capability the roster did not already carry. The copy is NOT mounted to
    * validate — a source that mounts today yields a copy that mounts today.
+   * Source resolution, the duplicate-id check, writable-root selection, and
+   * the directory copy all use the root list captured at the start of this
+   * call. A contribution registered or disposed while the call is in flight
+   * is visible to later {@link list} / {@link resolve} calls, not this one.
    * @param from - the preset the copy starts from; shipped presets are the
    * primary source, so any trust is accepted.
    * @param id - the new preset's id, which becomes its directory name.
@@ -605,14 +655,16 @@ export class AgentPresets extends TypertRemoteService {
    * or the deployment configures no writable root.
    */
   async copy(from: string, id: string, name?: string): Promise<void> {
-    const source = await this.resolve(from)
+    const roots = this.roots
+    const presets = await this.listFrom(roots)
+    const source = this.requirePreset(presets, from)
     // The roster check refuses ids any root supplies — shipped ones included,
     // since a user directory named like a shipped preset is shadowed by it.
     // The disk check inside copyComposition only sees the writable root.
-    if ((await this.list()).some(preset => preset.id === id)) {
+    if (presets.some(preset => preset.id === id)) {
       throw presetExists(id)
     }
-    await copyComposition(this.roots, source, id, name)
+    await copyComposition(roots, source, id, name)
     // A settled mount under this id can only be stale (its preset was deleted
     // from disk outside `remove`); the new preset must not inherit it. Every
     // session already joined keeps the generation it runs on regardless.
@@ -638,11 +690,14 @@ export class AgentPresets extends TypertRemoteService {
   /**
    * Delete a locally authored preset.
    *
+   * Resolution, writable-root selection, and deletion all use the root list
+   * captured at the start of this call.
    * @param id - the preset id.
    * @throws when the preset is unknown or ships with the deployment.
    */
   async remove(id: string): Promise<void> {
-    await deleteComposition(this.roots, await this.resolve(id))
+    const roots = this.roots
+    await deleteComposition(roots, await this.resolveFrom(roots, id))
     // Sessions on the deleted preset keep their standing mount; only new
     // sessions see the roster without it.
     this.standing.delete(id)

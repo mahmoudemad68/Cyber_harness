@@ -133,7 +133,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'agentPresets',
     summary: 'Registry over the deployment\'s agent presets.',
-    description: 'Registry over the deployment\'s agent presets.\n\nDiscovery is unmemoized: `list()` and `resolve()` re-read the roots on every call so a preset authored while the process runs is visible immediately, and a preset deleted underneath a picker disappears from the next read.',
+    description: 'Registry over the deployment\'s agent presets.\n\nDiscovery is unmemoized: `list()` and `resolve()` re-read the live concatenated roots on every call so a preset authored while the process runs is visible immediately, and a preset deleted underneath a picker disappears from the next read. `copy()`, `remove()`, and `readDocument()` capture that list once at entry and use it for every resolution, collision check, writable-root selection, and mutation in that call.',
     methods: [
       {
         signature: 'async list(): Promise<AgentPreset[]>',
@@ -195,14 +195,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'read\') async readDocument(agentPreset: string): Promise<AgentPresetDocument>',
-        description: 'One preset\'s composition text with the roster row it belongs to.',
+        description: 'One preset\'s composition text with the roster row it belongs to.\n\nRoster row and composition text come from one root list captured at entry, so a contribution that appears or disappears during the read cannot change which file is returned.',
         parameters: [{ name: 'agentPreset', description: 'the preset id.' }],
         returns: 'the composition beside its trust and published metadata.',
         throws: ['{RemoteError} `gateway/bad-request` for an empty id, or `agent-preset/not-found` when no scanned root supplies it.'],
       },
       {
         signature: 'async copy(from: string, id: string, name?: string): Promise<void>',
-        description: 'Create a locally authored preset by copying an existing one whole.\n\nCopy is the only authoring write. Composition text never crosses this seam: the source is named by id and its directory is copied as it stands, so the copy is exactly as loadable as its source and authoring grants no capability the roster did not already carry. The copy is NOT mounted to validate — a source that mounts today yields a copy that mounts today.',
+        description: 'Create a locally authored preset by copying an existing one whole.\n\nCopy is the only authoring write. Composition text never crosses this seam: the source is named by id and its directory is copied as it stands, so the copy is exactly as loadable as its source and authoring grants no capability the roster did not already carry. The copy is NOT mounted to validate — a source that mounts today yields a copy that mounts today. Source resolution, the duplicate-id check, writable-root selection, and the directory copy all use the root list captured at the start of this call. A contribution registered or disposed while the call is in flight is visible to later list / resolve calls, not this one.',
         parameters: [{ name: 'from', description: 'the preset the copy starts from; shipped presets are the primary source, so any trust is accepted.' }, { name: 'id', description: 'the new preset\'s id, which becomes its directory name.' }, { name: 'name', description: 'display name for the copy; absent falls back to the id.' }],
         throws: ['when the source is unknown, the id is unusable or already taken, or the deployment configures no writable root.'],
       },
@@ -215,7 +215,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async remove(id: string): Promise<void>',
-        description: 'Delete a locally authored preset.',
+        description: 'Delete a locally authored preset.\n\nResolution, writable-root selection, and deletion all use the root list captured at the start of this call.',
         parameters: [{ name: 'id', description: 'the preset id.' }],
         throws: ['when the preset is unknown or ships with the deployment.'],
       },
