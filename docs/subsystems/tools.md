@@ -169,7 +169,7 @@ interface ToolRestriction {
 
 ## `ModelToolSurface` — scoped model-facing names
 
-`ctx.tools.registerSurface(surface)` declares one mapping for the calling agent or preset scope. Identity (no declaration) is the default: exposed names equal registered names. `project` may hide a tool with `undefined` and may replace name and description; it must not rewrite parameters. Duplicate exposed names, an empty exposed name, and exposing a non-transport tool as `run_code` fail when the registry projects. Reverse resolution accepts only current exposed names, so a hidden or restricted tool cannot be reached through an alias. `toolOrder` still matches registered names; the assemble waterfall rewrites owned tools afterward. Dispatch, policy, restrictions, and concurrency keep the registered name. `ToolExecution.requestedName` is set only when it differs.
+`ctx.tools.registerSurface(surface)` declares one mapping for the calling agent or preset scope. Identity (no declaration) is the default: exposed names equal registered names. `project` may hide a tool with `undefined` and may replace name and description; it must not rewrite parameters. Duplicate exposed names, an empty exposed name, and exposing a non-transport tool as `run_code` fail when the registry projects. `assemble` snapshots the mapping for that scope; reverse resolution, `schemas`, SDK bindings, and concurrency classification use the snapshot until the next assemble. Direct execute without assemble projects the live visible set. Hidden or restricted tools absent from the snapshot cannot be reached through an alias. `toolOrder` still matches registered names; the assemble waterfall rewrites owned tools afterward. Dispatch, policy, restrictions, and concurrency keep the registered name. `ToolExecution.requestedName` is set only when it differs.
 
 ```ts type-equiv
 /** Model-facing name and optional description for one canonical tool schema. */
@@ -185,6 +185,8 @@ interface ModelToolSurfaceProjection {
 /**
  * Scoped mapping from canonical tools to model-facing names. `project` may
  * hide a tool with `undefined`. It must not rewrite `parameters`.
+ * {@link ToolRuntime} snapshots the mapping during `assemble` for that scope
+ * and uses the snapshot for reverse resolution until the next assemble.
  */
 interface ModelToolSurface {
   /** Identifier used in conflict and projection-failure diagnostics. */
@@ -544,7 +546,9 @@ presentAs(mode: ToolPresentationMode): () => void
  *
  * Scoped only, and one declaration per scope. A process-global mapping
  * would rename tools for every agent, including `standard`.
- * @param surface - pure projection from canonical schemas to exposed names.
+ * @param surface - mapping from canonical schemas to exposed names. The
+ *   registry snapshots it at assemble for this scope and uses that snapshot
+ *   for reverse resolution until the next assemble.
  * @returns the exact disposer that restores the identity mapping.
  */
 registerSurface(surface: ModelToolSurface): () => void
@@ -593,7 +597,9 @@ get(name: string, scope?: ScopeKey): ToolDefinition | undefined
  * Project visible definitions onto the allowlisted model-facing schema fields,
  * excluding execution and presentation callbacks. A scoped
  * {@link ModelToolSurface} rewrites only name and description; parameters
- * stay the registered schema. The identity mapping is the default.
+ * stay the registered schema. The identity mapping is the default. After
+ * assemble for this scope, this is the snapshot from that request until the
+ * next assemble; without assemble, it projects the live visible set.
  * @param scope - the viewing scope (the agent); omitted = the global view.
  * @returns one deep-cloned schema per tool the model may see.
  */

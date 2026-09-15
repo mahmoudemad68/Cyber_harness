@@ -74,7 +74,7 @@ The architectural pattern compared: a model-facing name can differ from the exec
 
 - `registerSurface(surface)` is a `layers.effect` on the calling agent/preset scope.
 - Zero surfaces leave every public method on the identity mapping: `schemas()`, `wireSchemas` names, `execute({ name })`, and `executionMode` behave as they do today.
-- `ToolRuntime` owns forward projection (`schemas`, SDK, assemble waterfall over `assembly.tools`) and reverse resolution (`resolveExecution` / `createExecution`).
+- `ToolRuntime` owns forward projection (`schemas`, SDK, assemble waterfall over `assembly.tools`) and reverse resolution (`resolveExecution` / `createExecution`). One assemble captures the mapping those paths share for that request.
 - `project()` may replace `name` and optionally `description`. It must not rewrite `parameters`. A different argument vocabulary is a typed adapter tool registered under its own canonical name.
 - Duplicate exposed names, an empty exposed name, and exposing a non-transport tool as `run_code` fail closed at projection time.
 - `run_code` stays identity whenever it is visible. The reserved transport is not a surface target.
@@ -86,9 +86,19 @@ The architectural pattern compared: a model-facing name can differ from the exec
 
 `REPLACE` is not required: `mode` / `presentAs` / `restrict` / PTC collapse stay. The surface is an additive mapping over the existing visible set.
 
-## 5. Why no new registry is required
+## 5. Request-bound snapshot
 
-`view(scope)` already answers which definitions exist. A `ModelToolSurface.project` function is a pure mapping over that set. Forward and reverse maps derived from one `project` cannot diverge the way a second registry would. Policy, guards, `isConcurrencySafe`, and tool bodies keep receiving canonical names because reverse resolution runs before `createExecution` freezes the pipeline object.
+`assemble()` collects tool providers first (`wireSchemas`), then renders section text (including PTC SDK `sdkSchemas`), then runs the `system-prompt/assemble` waterfall (`projectAssembledTools`). The loop logs `request/header` from that assembly's `tools` and later copies `block.name` into `createExecution` / `executionMode`.
+
+Those steps do not share a live `project()` call. A surface dispose or replace, a restriction or visibility change, or a stateful `project()` after the LLM request is built can make the advertised alias map disagree with reverse resolution, concurrency classification, nested SDK bindings, and execution.
+
+`ToolRuntime` captures the live projection inside `wireSchemas` for `context.scope` — the first tool-related assemble step, before SDK text and the waterfall rewrite. The snapshot is keyed by that assemble scope (the agent object, or a process-local key for the global view). The next assemble for the same scope replaces it. Disposing or replacing the surface does not clear it. Direct `execute` / `schemas` / `executionMode` without a prior assemble still project the live visible set, so unit tests that never assemble keep current behavior.
+
+`canonicalNameFor`, `schemas`, `sdkSchemas`, `executionMode`, and `createExecution` read that snapshot when it exists. Identity assemble still returns the same assembly object from the waterfall (no rewrite) and still captures an identity snapshot, so a surface registered after that assemble cannot rename in-flight calls. The reverse map is not stored on `request/header`; replay compares exposed schemas, and identity snapshots stay byte-identical.
+
+Purity of `project()` is not the divergence control. `project` must not rewrite `parameters`. The registry snapshots whatever mapping `project` returned at assemble time and uses that map for the rest of the request.
+
+This remains one `ToolRuntime`. There is no second registry.
 
 ## 6. Final API and lifecycle semantics
 
@@ -112,8 +122,8 @@ Semantics:
 - Reversible: the returned disposer clears only that scope's cell; a second call on the same disposer is a no-op. Disposing the calling fiber does the same.
 - Scoped only, one per scope, nearest scope wins — the `presentAs` lifecycle.
 - Unscoped `registerSurface` throws. Identity (no cell) is the process default, not a global override.
-- `project` is host-only and must be pure. Parameters on the returned schema are the registered object (or the existing `schemas()` clone), never a rewritten copy.
-- Reverse resolution accepts only exposed names from the current projected visible set. Canonical names of renamed or hidden tools do not execute.
+- `project` is host-only. Parameters on the returned schema are the registered object, never a rewritten copy. `ToolRuntime` snapshots the mapping during `assemble` for that scope; reverse resolution, `schemas`, SDK bindings, and concurrency classification use that snapshot until the next assemble. Direct execute without assemble projects the live visible set.
+- Reverse resolution accepts only exposed names from that snapshot. Canonical names of renamed or hidden tools do not execute for that request. Hidden and restricted tools absent from the snapshot cannot be reached through an alias.
 - Host lookup `get(name)` stays canonical. Restrictions and `toolOrder` stay canonical.
 - Durable `tool/call` continues to record the model-requested name. Executed arguments stay the snapshotted input.
 

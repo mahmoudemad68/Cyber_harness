@@ -604,10 +604,10 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
       // silently dropping the binding), and the runtime host resolves
       // binding names as own properties only.
       const functions: Record<string, CodeBindingFunction> = Object.create(null) as Record<string, CodeBindingFunction>
-      // Enumerate the CALLING AGENT's visible set (scoped tools join,
-      // restricted globals vanish) — the same view the SDK section declared,
+      // Enumerate the CALLING AGENT's assemble snapshot (scoped tools join,
+      // restricted globals vanish) — the same mapping the SDK section declared,
       // so a program can bind exactly what its prompt promised; sub-dispatch
-      // re-resolves per call through the same view (exec.agent threads down).
+      // re-resolves per call through that snapshot (exec.agent threads down).
       for (const schema of registry.schemas(exec.agent)) {
         if (schema.name === RUN_CODE_NAME) continue
         Object.defineProperty(functions, schema.name, { enumerable: true, value: binding(schema.name) })

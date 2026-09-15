@@ -452,3 +452,163 @@ describe('ModelToolSurface concurrency and cancellation', () => {
     expect(exec?.requestedName).toBe('ping')
   })
 })
+
+describe('ModelToolSurface request-bound projection freeze', () => {
+  it('keeps the advertised alias after the live surface is disposed, then a new assemble observes identity', async () => {
+    const ctx = await mount()
+    const args: unknown[] = []
+    ctx.tools.register(defineTool({
+      name: 'echo',
+      description: 'tool echo',
+      parameters: { text: { type: 'string' } },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      execute(received) {
+        args.push(received)
+        return Promise.resolve(received.text ?? '')
+      },
+    }))
+    const { scope, key } = await mintAgentScope(ctx)
+    const lift = scope.ctx.tools.registerSurface(aliasSurface({ echo: 'ping' }))
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(tool => tool.name)).toEqual(['ping'])
+    lift()
+    expect(ctx.tools.schemas(key).map(tool => tool.name)).toEqual(['ping'])
+
+    const names: string[] = []
+    ctx.on('tools/pre-execute', (exec: ToolExecution, next: () => Promise<PreToolDecision>) => {
+      names.push(exec.name)
+      return next()
+    })
+    const ping = await run(ctx, 'ping', { text: 'frozen' }, key)
+    expect(args).toEqual([{ text: 'frozen' }])
+    expect(names).toEqual(['echo'])
+    expect(ping.exec?.name).toBe('echo')
+    expect(ping.exec?.requestedName).toBe('ping')
+    expect(ping.result.isError).toBe(false)
+
+    const canonicalDuringFreeze = await run(ctx, 'echo', { text: 'no' }, key)
+    expect(canonicalDuringFreeze.result.isError).toBe(true)
+    expect(canonicalDuringFreeze.result.error?.info?.code).toBe('UNKNOWN_TOOL')
+
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(tool => tool.name)).toEqual(['echo'])
+    expect(ctx.tools.schemas(key).map(tool => tool.name)).toEqual(['echo'])
+    const later = await run(ctx, 'echo', { text: 'next' }, key)
+    expect(later.result.isError).toBe(false)
+    expect(later.exec?.name).toBe('echo')
+    expect(later.exec?.requestedName).toBeUndefined()
+    const staleAlias = await run(ctx, 'ping', { text: 'stale' }, key)
+    expect(staleAlias.result.isError).toBe(true)
+    expect(staleAlias.result.error?.info?.code).toBe('UNKNOWN_TOOL')
+    expect(args).toEqual([{ text: 'frozen' }, { text: 'next' }])
+  })
+
+  it('classifies concurrency through the frozen alias map', async () => {
+    const ctx = await mount()
+    ctx.tools.register(defineTool({
+      name: 'safe',
+      description: 'safe',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      isConcurrencySafe: () => true,
+      execute: () => Promise.resolve('ok'),
+    }))
+    const { scope, key } = await mintAgentScope(ctx)
+    const lift = scope.ctx.tools.registerSurface(aliasSurface({ safe: 'looks-mutating' }))
+    await ctx.systemPrompt.assemble({ scope: key })
+    lift()
+    expect(ctx.tools.executionMode({
+      callId: ToolCallId('c1'),
+      name: 'looks-mutating',
+      arguments: {},
+      agent: key,
+      signal: testToolSignal,
+    })).toEqual({ kind: 'parallel' })
+    expect(ctx.tools.executionMode({
+      callId: ToolCallId('c2'),
+      name: 'safe',
+      arguments: {},
+      agent: key,
+      signal: testToolSignal,
+    })).toEqual({ kind: 'exclusive' })
+    const { result, exec } = await run(ctx, 'looks-mutating', {}, key)
+    expect(result.isError).toBe(false)
+    expect(exec?.name).toBe('safe')
+    expect(exec?.requestedName).toBe('looks-mutating')
+  })
+
+  it('keeps hidden and restricted names unreachable under the freeze, then a new assemble follows the live set', async () => {
+    const ctx = await mount()
+    ctx.tools.register(echo('keep'))
+    ctx.tools.register(echo('secret'))
+    ctx.tools.register(echo('denied'))
+    const { scope, key } = await mintAgentScope(ctx)
+    const liftRestrict = scope.ctx.tools.restrict({ deny: ['denied'] })
+    const liftSurface = scope.ctx.tools.registerSurface(aliasSurface({
+      secret: undefined,
+      denied: 'leaked',
+    }))
+    await ctx.systemPrompt.assemble({ scope: key })
+    liftSurface()
+    const hidden = await run(ctx, 'secret', {}, key)
+    expect(hidden.result.error?.info?.code).toBe('UNKNOWN_TOOL')
+    const leaked = await run(ctx, 'leaked', {}, key)
+    expect(leaked.result.error?.info?.code).toBe('UNKNOWN_TOOL')
+    const restrictedCanonical = await run(ctx, 'denied', {}, key)
+    expect(restrictedCanonical.result.error?.info?.code).toBe('UNKNOWN_TOOL')
+
+    liftRestrict()
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(tool => tool.name).sort())
+      .toEqual(['denied', 'keep', 'secret'])
+    const revealed = await run(ctx, 'secret', { text: 'ok' }, key)
+    expect(revealed.result.isError).toBe(false)
+    const opened = await run(ctx, 'denied', { text: 'ok' }, key)
+    expect(opened.result.isError).toBe(false)
+  })
+
+  it('does not re-enter project() for reverse resolution inside one request', async () => {
+    const ctx = await mount()
+    ctx.tools.register(echo())
+    const { scope, key } = await mintAgentScope(ctx)
+    let projectCalls = 0
+    scope.ctx.tools.registerSurface({
+      id: 'stateful',
+      project(schema) {
+        projectCalls += 1
+        return schema.name === 'echo' ? { exposedName: `ping${projectCalls}` } : { exposedName: schema.name }
+      },
+    })
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(tool => tool.name)).toEqual(['ping1'])
+    expect(projectCalls).toBe(1)
+    expect(ctx.tools.schemas(key).map(tool => tool.name)).toEqual(['ping1'])
+    const first = await run(ctx, 'ping1', { text: 'one' }, key)
+    expect(first.result.isError).toBe(false)
+    expect(first.exec?.name).toBe('echo')
+    expect(first.exec?.requestedName).toBe('ping1')
+    const drifted = await run(ctx, 'ping2', { text: 'two' }, key)
+    expect(drifted.result.error?.info?.code).toBe('UNKNOWN_TOOL')
+    expect(projectCalls).toBe(1)
+
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(tool => tool.name)).toEqual(['ping2'])
+    expect(projectCalls).toBe(2)
+    const second = await run(ctx, 'ping2', { text: 'next' }, key)
+    expect(second.result.isError).toBe(false)
+    expect(second.exec?.requestedName).toBe('ping2')
+    const stale = await run(ctx, 'ping1', { text: 'stale' }, key)
+    expect(stale.result.error?.info?.code).toBe('UNKNOWN_TOOL')
+  })
+
+  it('reads the global assemble freeze when execute omits an agent', async () => {
+    const ctx = await mount()
+    ctx.tools.register(echo())
+    await ctx.systemPrompt.assemble()
+    const { result, exec } = await run(ctx, 'echo', { text: 'global' })
+    expect(result.isError).toBe(false)
+    expect(exec?.name).toBe('echo')
+    expect(exec?.requestedName).toBeUndefined()
+  })
+})

@@ -105,4 +105,75 @@ describe('model tool surface through the agent loop', () => {
     expect(block).toMatchObject({ toolCallId: 'c1', isError: false })
     expect(block.content).toEqual([{ type: 'text', text: 'echo:hi' }])
   })
+
+  it('executes the frozen alias after the live surface is disposed, then a later request sees identity', async () => {
+    const surface = { lift: undefined as (() => void) | undefined }
+    const adapter = new MockAdapter([
+      (options) => {
+        expect(options.tools?.map(tool => tool.name)).toEqual(['ping'])
+        surface.lift?.()
+        return toolCallResponse('c1', 'ping', { text: 'hi' }, 'calling ping')
+      },
+      textResponse('done'),
+      toolCallResponse('c2', 'echo', { text: 'later' }, 'calling echo'),
+      textResponse('done-later'),
+    ])
+    const ctx = await harness(adapter)
+    const bodies: unknown[] = []
+    const pipelineNames: string[] = []
+    ctx.tools.register(defineContentToolFixture({
+      name: 'echo',
+      description: 'echo back',
+      parameters: { text: { type: 'string' } },
+      async execute(args) {
+        bodies.push(args)
+        return [{ type: 'text', text: `echo:${args.text}` }]
+      },
+    }))
+    ctx.on('tools/pre-execute', (exec: ToolExecution, next) => {
+      pipelineNames.push(exec.name)
+      return next()
+    })
+    const agent = await ctx.agentLoop.create(SessionId('surface-loop-freeze'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    surface.lift = agent.ctx.tools.registerSurface({
+      id: 'loop-alias',
+      project: schema => schema.name === 'echo' ? { exposedName: 'ping' } : { exposedName: schema.name },
+    })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'use ping' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(bodies).toEqual([{ text: 'hi' }])
+    expect(pipelineNames).toEqual(['echo'])
+    expect(adapter.requests[0]?.tools?.map(tool => tool.name)).toEqual(['ping'])
+
+    const firstEvents = agent.session.snapshotEvents()
+    const firstHeader = firstEvents.filter(event => event.type === 'request/header')
+    expect(firstHeader).toHaveLength(1)
+    expect(firstHeader[0]?.type === 'request/header'
+      && firstHeader[0].data.header.tools?.map(tool => tool.name)).toEqual(['ping'])
+    expect(structuredClone(adapter.requests[0]?.tools ?? [])).toEqual(structuredClone(
+      firstHeader[0]?.type === 'request/header' ? firstHeader[0].data.header.tools ?? [] : [],
+    ))
+    expect(foldRequestHeader(firstEvents)?.tools?.map(tool => tool.name)).toEqual(['ping'])
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'use echo' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(bodies).toEqual([{ text: 'hi' }, { text: 'later' }])
+    expect(pipelineNames).toEqual(['echo', 'echo'])
+    expect(adapter.requests[2]?.tools?.map(tool => tool.name)).toEqual(['echo'])
+
+    const events = agent.session.snapshotEvents()
+    const headers = events.filter(event => event.type === 'request/header')
+    expect(headers).toHaveLength(2)
+    expect(headers[0]?.type === 'request/header' && headers[0].data.header.tools?.map(tool => tool.name)).toEqual(['ping'])
+    expect(headers[1]?.type === 'request/header' && headers[1].data.header.tools?.map(tool => tool.name)).toEqual(['echo'])
+    expect(foldRequestHeader(events)?.tools?.map(tool => tool.name)).toEqual(['echo'])
+    const calls = events.filter(event => event.type === 'tool/call')
+    expect(calls.map(event => event.type === 'tool/call' ? event.data.name : undefined)).toEqual(['ping', 'echo'])
+  })
 })

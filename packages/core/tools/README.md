@@ -82,7 +82,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Map model-facing names
 
-`ctx.tools.registerSurface(surface)` declares a scoped mapping from registered tool names to the names the model sees. Identity (no declaration) is the default and leaves existing behavior unchanged. `project` may hide a tool or replace its name and description; parameters stay the registered schema. Duplicate exposed names fail. The registry reverse-resolves the name the model supplied onto the registered name before policy and execution. A different argument schema is a separate typed adapter tool, not an alias.
+`ctx.tools.registerSurface(surface)` declares a scoped mapping from registered tool names to the names the model sees. Identity (no declaration) is the default and leaves existing behavior unchanged. `project` may hide a tool or replace its name and description; parameters stay the registered schema. Duplicate exposed names fail. `assemble` snapshots the mapping for that scope; reverse resolution uses the snapshot until the next assemble. Direct execute without assemble projects the live visible set. A different argument schema is a separate typed adapter tool, not an alias.
 
 ### Enforce policy on calls
 

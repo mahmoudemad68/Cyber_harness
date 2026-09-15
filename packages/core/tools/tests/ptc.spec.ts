@@ -2015,4 +2015,31 @@ describe('ModelToolSurface with native/ptc/both', () => {
     const nested = await runCode(ctx, 'program', { agent })
     expect(nested).toMatchObject({ isError: false })
   })
+
+  it("mode 'ptc' keeps frozen SDK bindings after the live surface is disposed", async () => {
+    const { ctx, systemPrompt, runtime } = await setup({ mode: 'ptc' })
+    const calls = registerEcho(ctx)
+    const { scope, agent } = await mintAgentScope(ctx)
+    const lift = scope.ctx.tools.registerSurface(pingSurface())
+    await systemPrompt.assemble({ scope: agent })
+    lift()
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      expect(Object.keys(tools).sort()).toEqual(['ping'])
+      expect(tools.echo).toBeUndefined()
+      return { logs: [], value: await tools.ping!({ value: 'frozen-sdk' }) }
+    }
+    const nested = await runCode(ctx, 'program', { agent })
+    expect(nested).toMatchObject({ isError: false })
+    expect(calls).toEqual([{ value: 'frozen-sdk' }])
+
+    await systemPrompt.assemble({ scope: agent })
+    runtime.behavior = async (request) => {
+      expect(Object.keys(request.bindings[0]!.functions).sort()).toEqual(['echo'])
+      return { logs: [], value: await request.bindings[0]!.functions.echo!({ value: 'live-sdk' }) }
+    }
+    const later = await runCode(ctx, 'program', { agent })
+    expect(later).toMatchObject({ isError: false })
+    expect(calls).toEqual([{ value: 'frozen-sdk' }, { value: 'live-sdk' }])
+  })
 })
