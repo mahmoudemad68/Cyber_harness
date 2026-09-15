@@ -281,23 +281,23 @@ files. Observed job conclusions on PR #4 at
 (job `labels`, `status`, `conclusion`, and failure logs). Phase 0 does
 not retarget or rewrite these workflows.
 
-**Do not claim that this fork automatically falls back to GitHub-hosted
-runners.** That is true only for expressions that already default to
-`ubuntu-latest` / `ubuntu-24.04` / `windows-*` GitHub-hosted labels, or
-for release rehearsals whose self-hosted leg is gated on
-`github.repository == 'deepseek-harness/deepseek-harness'`.
+Historical: PR #4 did **not** fall back to GitHub-hosted runners for
+enterprise jobs. Current policy (positive `github.repository ==
+'mahmoudemad68/Cyber_harness'` clause) is in
+[`docs/ci/fork-ci.md`](ci/fork-ci.md). The imported default below is
+what Phase 0 observed before that overlay.
 
 `ci.yml` Linux enterprise jobs resolve `runs-on` as: Blacksmith label if
 `DSH_CI_FAILOVER_LINUX` is `blacksmith`; in-house self-hosted pool if
 that variable is `selfhosted` and Dependabot predicates pass; otherwise
 the default label `dsh-ubuntu-24-04-16core`.
 
-Unset `DSH_CI_FAILOVER_LINUX` selects `dsh-ubuntu-24-04-16core`, an
+Unset `DSH_CI_FAILOVER_LINUX` selected `dsh-ubuntu-24-04-16core`, an
 upstream hosted-enterprise runner label, **not** `ubuntu-latest`. Windows
-PR jobs likewise default to `dsh-windows-2025-16core`. This fork does
-not provide those labels, so the jobs remain queued. Future fork-CI
-remediation (not Phase 0) would add matching runners, set the failover
-repository variables to a pool this fork owns, or retarget `runs-on`.
+PR jobs likewise defaulted to `dsh-windows-2025-16core`. On PR #4 this
+fork did not provide those labels, so the jobs remained queued. The later
+overlay in [`docs/ci/fork-ci.md`](ci/fork-ci.md) retargets this repository
+onto GitHub-hosted runners instead.
 
 #### Jobs that ran correctly on this fork (GitHub-hosted labels)
 
@@ -431,9 +431,31 @@ These paths are this project's, not DeepSeek Harness:
 - `.cursor/rules/general-agent-harness.mdc`
 - `docs/notes/phase-0-reference-inspection.md`
 - `docs/upstream-sync.md`
+- `docs/ci/fork-ci.md`
+- `.github/workflows/ci-fork.yml`
+- `scripts/ci-isolate-workspace-fixture.sh`
+- `scripts/fork-owned-docs.ts`
+- `scripts/tests/fork-ci.spec.ts`
 
 No Cybersecurity domain package, policy plugin, tool-surface code, or other
 Phase 1+ runtime was added.
+
+## Fork CI policy (post–Phase 0)
+
+Phase 0 only audited CI. The follow-up fork CI overlay lives in
+[`docs/ci/fork-ci.md`](ci/fork-ci.md). That note is the source of truth for:
+
+- required fork PR checks (`Fork CI / fork checks passed`)
+- runner substitutions for DeepSeek enterprise labels
+- optional secret-dependent jobs (SKIPPED vs FAILED)
+- translation-pairing ownership for `docs/plans/`, `docs/notes/`,
+  `docs/ci/`, and this file
+- every intentional workflow divergence and how to reconcile the next
+  `upstream/master` merge
+
+The Phase 0 portability audit below is historical (PR #4). It remains
+accurate as a record of the imported default. It is not the current
+fork policy.
 
 ## Phase 0 reference-inspection record
 

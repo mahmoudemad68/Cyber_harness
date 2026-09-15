@@ -1,0 +1,129 @@
+# Fork-owned pull-request gate for mahmoudemad68/Cyber_harness.
+# Does not replace upstream CI; it is the required, GitHub-hosted aggregate
+# that can finish without DeepSeek enterprise runners or upstream secrets.
+# See docs/ci/fork-ci.md.
+
+name: Fork CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRIMARY_NODE_VERSION: '24'
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  static:
+    if: github.repository == 'mahmoudemad68/Cyber_harness'
+    name: typecheck lint pairing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Translation pairing
+        run: pnpm run verify-translation-pairing
+
+      - name: Package invariants
+        run: pnpm run verify-package-invariants
+
+  unit:
+    if: github.repository == 'mahmoudemad68/Cyber_harness'
+    name: unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Isolate /workspace vacant-cwd fixture
+        run: bash scripts/ci-isolate-workspace-fixture.sh
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm run test
+
+  snapshot:
+    if: github.repository == 'mahmoudemad68/Cyber_harness'
+    name: headless snapshot smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build native host addon
+        run: pnpm run build:native-system
+
+      - name: Build host libraries
+        run: pnpm run build:lib:host
+
+      - name: Headless profile snapshot smoke
+        run: >-
+          pnpm exec vitest run
+          --config vitest.snapshot.config.ts
+          snapshots/session/headless.snapshot.ts
+          -t "replays text-turn through dsh --profile headless"
+
+  fork-checks-passed:
+    name: fork checks passed
+    if: ${{ !cancelled() && github.repository == 'mahmoudemad68/Cyber_harness' }}
+    needs: [static, unit, snapshot]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any needed job did not succeed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: |
+          echo "::error::Needed job results: ${{ join(needs.*.result, ', ') }}"
+          exit 1
+      - name: Fork checks passed
+        run: echo "All needed fork jobs succeeded (${{ join(needs.*.result, ', ') }})"

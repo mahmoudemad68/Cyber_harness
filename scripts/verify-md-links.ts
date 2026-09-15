@@ -10,6 +10,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import type { Nodes } from 'mdast'
+import { isForkOwnedDocumentation } from './fork-owned-docs.ts'
 import { markdownHeadingLines, parseMarkdown, visitMarkdown } from './markdown.ts'
 import { isArchivedAgentNotePath, uniqueRepoFiles } from './repo-files.ts'
 
@@ -196,7 +197,11 @@ export function findViolations(
 
 if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
   // Archived notes remain valid link targets, but their historical outbound links are frozen.
-  const files = uniqueRepoFiles(root, PATTERNS, isArchivedAgentNotePath)
+  const files = uniqueRepoFiles(
+    root,
+    PATTERNS,
+    path => isArchivedAgentNotePath(path) || isForkOwnedDocumentation(path),
+  )
   const anchorsOf = anchorCache()
   const all = files.flatMap(file => findViolations(file.abs, anchorsOf))
   const checked = files.length
