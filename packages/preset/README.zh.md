@@ -9,7 +9,7 @@ kind: "package-group"
 
 ## 概述
 
-preset 组提供按会话的 agent（智能体）组装：agent preset 是一个目录，内含一份 `agent.cordis.yml`；从 preset 组装的会话会使用该 preset 的工具、提示词段落与 skill（技能），而其他会话仍各自使用自己的工具、提示词段落与 skill。`agent-presets` 拥有名单——对已配置根目录与 harness home 的发现、受防护的按 agent 挂载，以及仅通过复制创建 preset 的方式——`persona` 则提供可组装的行，让 preset 不止能改变 agent 的工具，也能改变它的身份。两者合起来让一个进程可以同时运行多个组装方式不同的 agent。
+preset 组提供按会话的 agent（智能体）组装：agent preset 是一个目录，内含一份 `agent.cordis.yml`；从 preset 组装的会话会使用该 preset 的工具、提示词段落与 skill（技能），而其他会话仍各自使用自己的工具、提示词段落与 skill。`agent-presets` 拥有名单——对随附、已配置、包贡献与用户根目录的发现、受防护的按 agent 挂载，以及仅通过复制创建 preset 的方式——`persona` 则提供可组装的行，让 preset 不止能改变 agent 的工具，也能改变它的身份。两者合起来让一个进程可以同时运行多个组装方式不同的 agent。
 
 ## 目录
 
@@ -24,7 +24,7 @@ preset 组提供按会话的 agent（智能体）组装：agent preset 是一个
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
-| [`agent-presets`](agent-presets/README.zh.md) | preset 名单、对受信任根目录与用户根目录的发现、按 agent 组装、仅通过复制创建 preset | `ctx.agentPresets` |
+| [`agent-presets`](agent-presets/README.zh.md) | preset 名单、对随附、已配置、包贡献与用户根目录的发现、按 agent 组装、仅通过复制创建 preset | `ctx.agentPresets` |
 | [`persona`](persona/README.zh.md) | preset 挂载的可组装人设行，用于遮蔽或替换部署级人设 | — |
 
 -----
@@ -36,6 +36,7 @@ preset 组提供按会话的 agent（智能体）组装：agent preset 是一个
 - [Scope 子系统](../../docs/subsystems/scope.zh.md)——scope key，以及挂载接入 agent 时所用的父链。
 - [系统提示词子系统](../../docs/subsystems/system-prompt.zh.md)——preset 提示词段落如何注册与组装。
 - [按会话组装 agent preset 的 Agent Note](../../.agents/notes/implemented/architecture/2026-08-03-per-session-agent-presets.zh.md)——设计理由与备选方案。
+- [可逆的 preset 根目录贡献](../../.agents/notes/implemented/architecture/2026-09-15-reversible-preset-root-contribution.zh.md)——已安装的包如何追加扫描目录。
 
 部署交付的 preset 位于 [`agent-presets/presets/`](agent-presets/presets)——一个 preset 一个目录，那份目录列表就是名单；在这里再列一遍只会多出一份需要同步的名单。
 

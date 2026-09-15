@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `dsh-agent-presets` to give each session the tools, prompt sections, and skills named by one preset's `agent.cordis.yml`. One process can run sessions with different presets while keeping their state separate. The preset list combines shipped definitions with configured and user roots, reports why a preset cannot start, and can create a local preset by copying an existing one. Deployments and users can choose defaults; only an empty session may switch presets. Treat every authored preset as trusted configuration because it grants the capabilities of the plugins it selects.
+Use `dsh-agent-presets` to give each session the tools, prompt sections, and skills named by one preset's `agent.cordis.yml`. One process can run sessions with different presets while keeping their state separate. The preset list combines shipped definitions with configured, package-contributed, and user roots, reports why a preset cannot start, and can create a local preset by copying an existing one. Deployments and users can choose defaults; only an empty session may switch presets. Treat every authored preset as trusted configuration because it grants the capabilities of the plugins it selects.
 
 ## Table of Contents
 
@@ -33,7 +33,7 @@ The shipped Web `standard`, `ptc`, and `cordis` presets include [explicit file d
 
 A session composed from a preset runs the plugins that preset's `agent.cordis.yml` names: its tools, prompt sections, and skills. Sessions joined to the same preset share one installed composition, and each session's state stays separate. A child agent (subagent) joins its parent's composition, so it sees the same tools and prompt sections as the agent that spawned it.
 
-The presets you can choose from come from three sources: the presets shipped inside this package under `presets/`, configured roots, and your own presets under `<dshHome>/.agent-presets`. The picker shows each preset's display name and description; a preset whose composition cannot load is listed with the reason rather than hidden, so you can see what to fix or delete.
+The presets you can choose from come from four sources: the presets shipped inside this package under `presets/`, configured roots, directories registered by installed packages through `registerRoot`, and your own presets under `<dshHome>/.agent-presets`. The picker shows each preset's display name and description; a preset whose composition cannot load is listed with the reason rather than hidden, so you can see what to fix or delete.
 
 ### Minimal configuration
 
@@ -58,6 +58,12 @@ The plugin needs a `default` preset id and scans `roots` for presets:
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-agent-presets) is the exhaustive source for every accepted field and its JSDoc.
 
 The shipped root is prepended before every configured root, so the built-in set remains available and wins duplicate ids even when a patch replaces the roster configuration. `includeShippedRoot: false` drops that built-in set for deployments that supply all presets themselves. `includeUserRoot: false` drops the derived writable root; tests that pin an exact roster disable both derived roots.
+
+### Package-contributed roots
+
+An installed plugin that injects `agentPresets` calls `registerRoot({ path, trust })` to add a scanned directory for its lifetime. The directory is scanned after the shipped root and `config.roots`, and before the derived user-authored root. The returned disposer removes only that directory; disposing the plugin removes it too. `list()` and `resolve()` re-read every root on each call. With no contribution, the roster matches a composition that never called `registerRoot`.
+
+Package-contributed roots typically use `trust: 'system'`. A `trust: 'user'` contribution that precedes the derived home root is the writable authoring root, because authoring writes to the first `user` root in scan order.
 
 ### Showing the picker and choosing its default
 
@@ -106,7 +112,7 @@ This section explains the design behind the roster and the standing mount; obser
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Service entry: `Config` schema, settings namespace, roster API, standing-mount coordination |
+| [`src/index.ts`](src/index.ts) | Service entry: `Config` schema, settings namespace, roster API including `registerRoot`, standing-mount coordination |
 | [`src/discovery.ts`](src/discovery.ts) | Filesystem discovery: root scanning, health checks, id validation, ordering |
 | [`src/composition-inventory.ts`](src/composition-inventory.ts) | Flattened composition rows for plugin-listing surfaces: file reads with evaluated disabled gates, mount reads with fiber states |
 | [`src/preset.ts`](src/preset.ts) | Vocabulary: preset id rule, `AgentPreset` and `PresetRoot`, error types |
@@ -152,6 +158,7 @@ Read these pages when the package-level contract is not enough; they move from t
 - [Session package map](../../session/README.md) — the durable session record a preset switch appends to.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-agent-presets) — every accepted config field and its source declaration.
 - [Per-session agent presets note](../../../.agents/notes/implemented/architecture/2026-08-03-per-session-agent-presets.md) — design rationale and alternatives.
+- [Reversible preset-root contribution](../../../.agents/notes/implemented/architecture/2026-09-15-reversible-preset-root-contribution.md) — how installed packages add scanned directories.
 
 -----
 

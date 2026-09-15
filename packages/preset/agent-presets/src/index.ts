@@ -115,18 +115,25 @@ export class AgentPresets extends TypertRemoteService {
   }) as z<Config>
 
   /**
-   * The roots discovery and authoring actually scan: the package's shipped
-   * root unless `includeShippedRoot` is false, then every configured root in
-   * order, then the harness-home user root unless `includeUserRoot` is false.
-   *
-   * Derived once, because a root set that changed between `list()` and the
-   * `copy()` acting on its answer would author into a directory the caller
-   * never saw. The shipped root comes FIRST and the user root LAST because an
-   * earlier root wins a duplicate id: a shipped preset shadows any directory
-   * that claimed its name, and a configured root still shadows a locally
-   * authored one.
+   * Shipped root (when included) followed by `config.roots`, in that order.
+   * Frozen at load so a later {@link registerRoot} appends after this prefix
+   * rather than rewriting a deployment-configured directory.
    */
-  private readonly resolvedRoots: readonly PresetRoot[]
+  private readonly prefixRoots: readonly PresetRoot[]
+
+  /**
+   * Derived user-authored root when `includeUserRoot` is true; otherwise empty.
+   * Frozen at load and always last, so a locally authored preset never shadows
+   * a shipped, configured, or package-contributed id.
+   */
+  private readonly suffixRoots: readonly PresetRoot[]
+
+  /**
+   * Package-contributed roots in registration order, scanned between
+   * {@link prefixRoots} and {@link suffixRoots}. Each {@link registerRoot}
+   * call owns one slot; disposal splices only that object.
+   */
+  private readonly contributedRoots: PresetRoot[] = []
 
   /**
    * Where a row's package name resolves from: the base URL of the composition
@@ -178,11 +185,13 @@ export class AgentPresets extends TypertRemoteService {
       )
     }
     this.harnessBase = baseUrl
-    this.resolvedRoots = [
+    this.prefixRoots = [
       ...config.includeShippedRoot ? [{ path: SHIPPED_PRESET_ROOT, trust: 'system' } satisfies PresetRoot] : [],
       ...config.roots,
-      ...config.includeUserRoot ? [{ path: dshHomePath(USER_PRESET_DIR), trust: 'user' } satisfies PresetRoot] : [],
     ]
+    this.suffixRoots = config.includeUserRoot
+      ? [{ path: dshHomePath(USER_PRESET_DIR), trust: 'user' } satisfies PresetRoot]
+      : []
     // Deliberately not `settings.installSection`: that method exists to re-judge
     // what a consumer DERIVED from the source — memoized resolutions,
     // registration-level facts — across attach, detach, and change. Nothing
@@ -216,7 +225,7 @@ export class AgentPresets extends TypertRemoteService {
     // sessions mount in `setup`, and children join through `composeFrom`
     // before publication.
     ctx.on('agent/created', ({ agent }) => {
-      if (this.resolvedRoots.length === 0) return
+      if (this.roots.length === 0) return
       if (this.composedPreset(agent.ctx) !== undefined) return
       ctx.logger.warn(
         `agent "${agent.id}" was published without joining an agent preset; `
@@ -259,11 +268,11 @@ export class AgentPresets extends TypertRemoteService {
   }
 
   /**
-   * Every preset the configured roots currently supply.
+   * Every preset the scanned roots currently supply.
    * @returns the presets, first-root-wins per id.
    */
   async list(): Promise<AgentPreset[]> {
-    return await discoverPresets(this.resolvedRoots, this.harnessBase)
+    return await discoverPresets(this.roots, this.harnessBase)
   }
 
   /**
@@ -360,7 +369,7 @@ export class AgentPresets extends TypertRemoteService {
    * through {@link resolveMountable}.
    * @param id - the preset id, or `undefined` for {@link defaultId}.
    * @returns the resolved preset.
-   * @throws when no configured root supplies that id.
+   * @throws when no scanned root supplies that id.
    */
   async resolve(id?: string): Promise<AgentPreset> {
     const wanted = id ?? this.defaultId
@@ -501,24 +510,56 @@ export class AgentPresets extends TypertRemoteService {
   /**
    * The roots this roster scans, which is not `config.roots`: the package's
    * shipped root unless `includeShippedRoot` is false, every configured root
-   * in order, then the harness-home user root unless `includeUserRoot` is
-   * false. Read this — not the config field — to answer whether a roster is
-   * composed at all, so one derivation decides it.
+   * in order, every package-contributed root in registration order, then the
+   * harness-home user root unless `includeUserRoot` is false. Read this —
+   * not the config field — to answer whether a roster is composed at all, so
+   * one derivation decides it.
    */
   get roots(): readonly PresetRoot[] {
-    return this.resolvedRoots
+    return [...this.prefixRoots, ...this.contributedRoots, ...this.suffixRoots]
+  }
+
+  /**
+   * Register an additional preset root for the life of the calling plugin.
+   *
+   * The root is scanned after the shipped root and `config.roots`, and before
+   * the derived user-authored root. Duplicate registrations remain distinct
+   * slots; {@link list} still keeps the first matching id.
+   *
+   * The returned disposer removes only this slot. Calling it twice is a
+   * no-op. Disposing the calling plugin's fiber also removes the slot.
+   * Standing mounts already joined to a preset from this root keep running;
+   * later {@link list} / {@link resolve} omit it.
+   *
+   * Uses the caller's `this.ctx` (the traceable proxy), not the service
+   * fiber: a contribution must unwind with the plugin that registered it.
+   *
+   * @param root - directory scanned for preset subdirectories, with the trust
+   * recorded on every preset discovered under it.
+   * @returns disposer that unregisters this contribution.
+   */
+  registerRoot(root: PresetRoot): () => void {
+    const contribution: PresetRoot = { path: root.path, trust: root.trust }
+    return this.ctx.effect(() => {
+      this.contributedRoots.push(contribution)
+      return () => {
+        const index = this.contributedRoots.indexOf(contribution)
+        if (index === -1) return
+        this.contributedRoots.splice(index, 1)
+      }
+    }, 'agentPresets.registerRoot()')
   }
 
   /** Whether this deployment has a root locally authored presets go to. */
   get authorable(): boolean {
-    return this.resolvedRoots.some(root => root.trust === 'user')
+    return this.roots.some(root => root.trust === 'user')
   }
 
   /**
    * Read one preset's composition text.
    * @param id - the preset id.
    * @returns the composition exactly as stored.
-   * @throws when no configured root supplies that id.
+   * @throws when no scanned root supplies that id.
    */
   async read(id: string): Promise<string> {
     return await readComposition(await this.resolve(id))
@@ -529,7 +570,7 @@ export class AgentPresets extends TypertRemoteService {
    * @param agentPreset - the preset id.
    * @returns the composition beside its trust and published metadata.
    * @throws {RemoteError} `gateway/bad-request` for an empty id, or
-   * `agent-preset/not-found` when no configured root supplies it.
+   * `agent-preset/not-found` when no scanned root supplies it.
    */
   @Remote('read')
   async readDocument(agentPreset: string): Promise<AgentPresetDocument> {
@@ -567,7 +608,7 @@ export class AgentPresets extends TypertRemoteService {
     if ((await this.list()).some(preset => preset.id === id)) {
       throw presetExists(id)
     }
-    await copyComposition(this.resolvedRoots, source, id, name)
+    await copyComposition(this.roots, source, id, name)
     // A settled mount under this id can only be stale (its preset was deleted
     // from disk outside `remove`); the new preset must not inherit it. Every
     // session already joined keeps the generation it runs on regardless.
@@ -597,7 +638,7 @@ export class AgentPresets extends TypertRemoteService {
    * @throws when the preset is unknown or ships with the deployment.
    */
   async remove(id: string): Promise<void> {
-    await deleteComposition(this.resolvedRoots, await this.resolve(id))
+    await deleteComposition(this.roots, await this.resolve(id))
     // Sessions on the deleted preset keep their standing mount; only new
     // sessions see the roster without it.
     this.standing.delete(id)

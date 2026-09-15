@@ -501,7 +501,7 @@ Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every cal
 
 ```ts cordis-catalog
 /**
- * Every preset the configured roots currently supply.
+ * Every preset the scanned roots currently supply.
  * @returns the presets, first-root-wins per id.
  */
 async list(): Promise<AgentPreset[]>
@@ -544,7 +544,7 @@ async compositionInventory(): Promise<AgentPresetComposition[]>
  * through {@link resolveMountable}.
  * @param id - the preset id, or `undefined` for {@link defaultId}.
  * @returns the resolved preset.
- * @throws when no configured root supplies that id.
+ * @throws when no scanned root supplies that id.
  */
 async resolve(id?: string): Promise<AgentPreset>
 
@@ -603,10 +603,31 @@ composeFrom(agentCtx: Context, parentCtx: Context): string | undefined
 composedPreset(agentCtx: Context): string | undefined
 
 /**
+ * Register an additional preset root for the life of the calling plugin.
+ *
+ * The root is scanned after the shipped root and `config.roots`, and before
+ * the derived user-authored root. Duplicate registrations remain distinct
+ * slots; {@link list} still keeps the first matching id.
+ *
+ * The returned disposer removes only this slot. Calling it twice is a
+ * no-op. Disposing the calling plugin's fiber also removes the slot.
+ * Standing mounts already joined to a preset from this root keep running;
+ * later {@link list} / {@link resolve} omit it.
+ *
+ * Uses the caller's `this.ctx` (the traceable proxy), not the service
+ * fiber: a contribution must unwind with the plugin that registered it.
+ *
+ * @param root - directory scanned for preset subdirectories, with the trust
+ * recorded on every preset discovered under it.
+ * @returns disposer that unregisters this contribution.
+ */
+registerRoot(root: PresetRoot): () => void
+
+/**
  * Read one preset's composition text.
  * @param id - the preset id.
  * @returns the composition exactly as stored.
- * @throws when no configured root supplies that id.
+ * @throws when no scanned root supplies that id.
  */
 async read(id: string): Promise<string>
 
@@ -615,7 +636,7 @@ async read(id: string): Promise<string>
  * @param agentPreset - the preset id.
  * @returns the composition beside its trust and published metadata.
  * @throws {RemoteError} `gateway/bad-request` for an empty id, or
- * `agent-preset/not-found` when no configured root supplies it.
+ * `agent-preset/not-found` when no scanned root supplies it.
  */
 @Remote('read') async readDocument(agentPreset: string): Promise<AgentPresetDocument>
 
