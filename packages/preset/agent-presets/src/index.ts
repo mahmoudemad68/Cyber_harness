@@ -540,7 +540,7 @@ export class AgentPresets extends TypertRemoteService {
    */
   registerRoot(root: PresetRoot): () => void {
     const contribution: PresetRoot = { path: root.path, trust: root.trust }
-    return this.ctx.effect(() => {
+    const unregister = this.ctx.effect(() => {
       this.contributedRoots.push(contribution)
       return () => {
         const index = this.contributedRoots.indexOf(contribution)
@@ -548,6 +548,10 @@ export class AgentPresets extends TypertRemoteService {
         this.contributedRoots.splice(index, 1)
       }
     }, 'agentPresets.registerRoot()')
+    // Effect disposers return `Promise<void>`; the public disposer is void.
+    return () => {
+      void unregister()
+    }
   }
 
   /** Whether this deployment has a root locally authored presets go to. */
