@@ -180,31 +180,69 @@ Sampled workflow security facts:
 - `release-publish.yml` is `workflow_dispatch` only and references
   `secrets.NPM_TOKEN`. Checkout uses `persist-credentials: false`.
 - `sandbox.yml` is keyless, `contents: read`, upstream-master-oriented.
-- Several jobs key upstream self-hosted pools on
-  `github.repository == 'deepseek-harness/deepseek-harness'`. On this fork
-  they should fall back to hosted runners rather than upstream internal
-  pools.
+
+Runner selection is not a single fallback rule. Two upstream workflow
+patterns exist, and they must not be conflated:
+
+1. **Release rehearsals** (`release.yml`, `release-vendor.yml`) admit the
+   in-house `[self-hosted, linux, x64, vm-backup]` pool only when
+   `vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'` **and**
+   `github.repository == 'deepseek-harness/deepseek-harness'` (plus actor /
+   same-repo predicates). Otherwise `runs-on` is `ubuntu-24.04`. On this
+   fork that expression **does** select GitHub-hosted `ubuntu-24.04`.
+   Observed on PR #4: Release (dsh) Dependency layout / Pack, and Release
+   (vendor) Pack, all `ubuntu-24.04` success.
+2. **PR `ci.yml` enterprise jobs** (`node 24 / static`, `coverage`,
+   `snapshots and artifacts`) default to the upstream hosted-enterprise
+   label `dsh-ubuntu-24-04-16core`. Windows PR jobs default to
+   `dsh-windows-2025-16core`. Failover is only via repository variables
+   `DSH_CI_FAILOVER_LINUX` / `DSH_CI_FAILOVER_WINDOWS` (`blacksmith` or
+   `selfhosted`). Unset variables do **not** fall back to `ubuntu-latest`
+   / `windows-latest`. A fork that lacks those labels leaves the jobs
+   queued. `node-compat` is the exception: its default is
+   `matrix.runner` (`ubuntu-latest`). `node 24 / benchmarks` is hardcoded
+   `ubuntu-24.04`. `all-checks-passed` defaults to `ubuntu-latest` but
+   `needs` the queued enterprise jobs, so the aggregate never finishes
+   while those labels are missing.
 
 No workflow file sampled contained embedded credentials. Secret *names* are
 present, which is expected GitHub Actions usage. Phase 0 will not rewrite
-these workflows. After import they may fail on this fork (missing upstream
-secrets, upstream runner labels, bilingual doc gates versus this project's
-planning docs). That is a baseline/fork-operations issue, not a reason to
-edit upstream CI in this phase.
+these workflows. After import they may fail or queue on this fork (missing
+upstream secrets, upstream runner labels, bilingual doc gates versus
+this project's planning docs). That is a baseline/fork-operations issue, not
+a reason to edit upstream CI in this phase. Observed PR #4 job
+classification is in `docs/upstream-sync.md`.
 
 ### 7.3 Credentials in Git history
 
-Inspection of upstream tracked files found:
+HEAD-tree inspection (pre-merge, upstream tracked files) found:
 
 - `.gitignore` excludes `.env`.
 - Real-API tests read `DEEPSEEK_API_KEY` from the environment or a gitignored
   `.env`.
 - Workflows reference GitHub secret names, not values.
 
-A full historical secret scan of upstream Git objects is deferred until after
-the fetch, when the objects are local. If a leaked secret is found in
-upstream history, Phase 0 will record it and will not rewrite upstream
-history.
+Full-history scan completed 2026-09-15 against every Git object reachable
+from this branch after the import (imported DeepSeek history plus this
+project's commits). Method, commands, and classification are recorded in
+`docs/upstream-sync.md`. Summary:
+
+- 417,547 `git rev-list --objects --all` ids; 183,284 candidate blobs
+  scanned (≤2 MiB, non-binary extensions).
+- Complementary `git log -S` searches for private-key armor and common
+  token prefixes; added-filename search for `.pem` / `.env` /
+  `credentials.json` / `id_rsa` and similar: no such files added.
+- 41 regex hits across 11 paths. All are upstream test/fixture dummy
+  material (telemetry redaction examples). None were introduced by this
+  project's commits. No live production credential was identified.
+- Historical upstream blobs (deleted before the imported SHA) contain
+  dummy PEM armor, `AKIA…` examples, GitHub PAT *shapes*, Slack *shapes*,
+  and `sk-…` fixtures used to test redactors. Current HEAD still contains
+  upstream dummy `sk-fixture*` strings in telemetry tests only.
+- History was not rewritten. No force-push.
+
+If a later sync imports a real leaked credential, record it here and in
+`docs/upstream-sync.md`. Do not rewrite upstream history to remove it.
 
 ## 8. README.md (upstream)
 
@@ -250,9 +288,15 @@ Recorded after the merge on `cursor/phase-0-upstream-foundation-b38e`:
    `c291e7961a515f6d7af9304e7fd1d257929aef26` (upstream).
 
 Install results and baseline test results are in `docs/upstream-sync.md`.
-Typecheck and lint passed. Unit tests had two environment-path failures in
-`packages/skill/tool-skill/tests/tool-skill.spec.ts` (checkout is
-`/workspace`). Shipped headless `text-turn` snapshot replay passed.
+Typecheck and lint passed in both the `/workspace` Cloud Agent checkout and
+a clean clone at `/home/ubuntu/phase0-clean`. Unit tests had the same two
+failures in `packages/skill/tool-skill/tests/tool-skill.spec.ts` whenever
+the host still had upstream `.agents/skills` at `/workspace` (the spec
+hardcodes `agentForCwd('/workspace')` as a vacant cwd). Those 32 tests
+passed when `/workspace` was bind-mounted empty. Shipped headless
+`text-turn` snapshot replay passed in both checkouts. Git-hook install
+(`scripts/install-lefthook.mjs`) failed only when `core.hooksPath` was
+Cursor-owned; it succeeded in the clean clone.
 
 ## 11. Phase 0 custom-runtime prohibition
 

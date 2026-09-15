@@ -201,6 +201,25 @@ upstream runtime file was edited to make a check pass.
 `DEEPSEEK_API_KEY` is not available in this environment. The keyless snapshot
 replay is the upstream-supported shipped-profile smoke.
 
+### Clean checkout outside `/workspace` (2026-09-15)
+
+Clone: `git clone /workspace /home/ubuntu/phase0-clean` then checkout
+`cursor/phase-0-upstream-foundation-b38e` at `5c6d1c25588d71d3fa9b1480cd8063daa48b66b3`.
+Path is not `/workspace`. Local and global `core.hooksPath` were empty.
+Node `v22.22.2`, pnpm `11.7.0`. The pnpm store was warm from the earlier
+`/workspace` install; lefthook still executed and succeeded.
+
+| Check | Command | Result |
+|---|---|---|
+| Frozen lockfile install | `pnpm install --frozen-lockfile` | Exit 0. 1260 packages. lefthook `scripts/install-lefthook.mjs` succeeded (`2026-09-15T06:40:57Z`–`06:41:02Z`). |
+| Typecheck | `pnpm run typecheck` | Exit 0 (`06:41:02Z`–`06:42:50Z`). |
+| Lint | `pnpm run lint` | Exit 0 (`06:42:50Z`–`06:43:39Z`). |
+| Unit tests | `pnpm run test` | Exit 1. **1264 files passed**, 13 skipped, **1 file failed**. **22508 tests passed**, 129 skipped, 1 expected fail, **2 failed** (`06:43:42Z`–`06:50:49Z`). Same two `tool-skill.spec.ts` failures as `/workspace`. |
+| Shipped profile smoke | `pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t "replays text-turn through dsh --profile headless"` | Exit 0. 1 passed, 96 skipped (`06:50:49Z`–`06:50:53Z`). |
+| tool-skill with empty `/workspace` | `unshare --user --map-root-user --mount` bind-mount empty dir over `/workspace`, then `pnpm exec vitest run packages/skill/tool-skill/tests/tool-skill.spec.ts` from `/home/ubuntu/phase0-clean` | Exit 0. **32 passed / 32**. |
+
+No upstream test file was modified to make a check pass.
+
 ### Known baseline failures
 
 1. **Root lefthook installer in this Cloud Agent environment (install).**
@@ -221,55 +240,123 @@ replay is the upstream-supported shipped-profile smoke.
    lockfile verification. On a clone without a custom `core.hooksPath`,
    lefthook installer is expected to succeed.
 
-2. **Two `dsh-tool-skill` unit tests when the checkout path is `/workspace`.**
+   Confirmed 2026-09-15 in `/home/ubuntu/phase0-clean` (empty
+   `core.hooksPath`): `pnpm install --frozen-lockfile` exit 0.
+   `scripts/install-lefthook.mjs` printed
+   `sync hooks: ✔️(pre-commit, pre-push, pre-merge-commit)`.
+   The `/workspace` failure is environment-specific.
+
+2. **Two `dsh-tool-skill` unit tests when host path `/workspace` has project skills.**
    File: `packages/skill/tool-skill/tests/tool-skill.spec.ts`.
 
    - `injects a stable durable name-and-description catalog at the first step`
    - `does not inject a catalog when no model-invocable skills are available`
 
-   Both use `agentForCwd('/workspace')` as a vacant working directory that
-   should not discover project skills. This Cloud Agent checkout *is*
-   `/workspace`, which contains upstream `.agents/skills`, so the tests see
-   the real DeepSeek skill catalog instead of `[]`. **Not caused by the
-   merge:** the spec and skill sources are unmodified upstream; 22508 other
-   tests passed; git status was clean. Do not change the spec in Phase 0.
-   Re-running the suite from a checkout path other than `/workspace` is the
-   expected way to get upstream's own result.
+   Both call `agentForCwd('/workspace')` as a vacant working directory that
+   should not discover project skills. They do **not** use `process.cwd()`.
+   This Cloud Agent host has upstream `.agents/skills` at `/workspace`, so the
+   tests see the real DeepSeek skill catalog instead of `[]`.
+
+   Confirmed 2026-09-15: a fresh clone at `/home/ubuntu/phase0-clean`
+   (not `/workspace`, empty `core.hooksPath`) still failed the same two
+   tests, because `/workspace` on the host remained populated. The same
+   file then passed **32/32** when the test process bind-mounted an empty
+   directory over `/workspace` (`unshare --user --map-root-user --mount`).
+   **Not caused by the merge:** the spec and skill sources are unmodified
+   upstream files; 22508 other tests passed in both checkouts. Do not change
+   the spec in Phase 0.
 
 3. **`pnpm dsh --dump-default-config` without `--profile`.** Upstream CLI at
    this revision requires `--profile <name>`. Use
    `pnpm dsh --profile web --dump-default-config`.
 
 Expected fork-operations issues, not treated as merge bugs and not executed
-as Phase 0 pass/fail gates:
+as Phase 0 pass/fail gates.
 
-- Imported GitHub workflows target upstream runners, secrets
-  (`DEEPSEEK_API_KEY_EXTERNAL`, `NPM_TOKEN`), and repository name checks.
-  They may fail or skip on `mahmoudemad68/Cyber_harness`.
+### Fork CI portability audit (2026-09-15)
 
-  Observed on PR #4 against this fork (commit `69ada399b5`, 2026-09-15):
+Inspected `.github/workflows/ci.yml` and the other 20 imported workflow
+files. Observed job conclusions on PR #4 at
+`5c6d1c25588d71d3fa9b1480cd8063daa48b66b3` via the GitHub Actions API
+(job `labels`, `status`, `conclusion`, and failure logs). Phase 0 does
+not retarget or rewrite these workflows.
 
-  - Passed: Node addon matrix; upstream `check:ci` node 22.19 / 24.9 / 26
-    compatibility; Linux benchmarks; Python keyless SDK; dsh/vendor pack;
-    one Python runtime wheel plan/build.
-  - Failed without this fork's secrets or upstream tokens, not because the
-    merge changed runtime source:
-    - `E2E (real DeepSeek API)` — Preflight requires `DEEPSEEK_API_KEY`.
-    - Python runtime installed-wheel real API test (linux/win) —
-      `DEEPSEEK_API_KEY_EXTERNAL is empty; the installed-wheel real API test
-      cannot self-skip.`
-    - Cloudflare Pages preview — Upload to Cloudflare Pages failed.
-    - Issue policy / Issue lifecycle — "Create Project read token" /
-      "Create project token" (upstream GitHub App/project credentials).
-  - Still queued on upstream runner label `dsh-ubuntu-24-04-16core`, which
-    this fork does not provide: `node 24 / static`, `coverage`,
-    `snapshots and artifacts`, and the Windows node 24 jobs. Phase 0 does
-    not retarget upstream workflows to GitHub-hosted runners.
-- Upstream `verify-translation-pairing` requires every `docs/**` document to
-  be a bilingual pair. This repository's planning files under `docs/plans/`
-  and Phase 0 notes under `docs/notes/` / `docs/upstream-sync.md` are
-  English-only by design. That is a documented fork documentation mismatch,
-  not a reason to edit upstream pairing machinery in Phase 0.
+**Do not claim that this fork automatically falls back to GitHub-hosted
+runners.** That is true only for expressions that already default to
+`ubuntu-latest` / `ubuntu-24.04` / `windows-*` GitHub-hosted labels, or
+for release rehearsals whose self-hosted leg is gated on
+`github.repository == 'deepseek-harness/deepseek-harness'`.
+
+`ci.yml` Linux enterprise jobs resolve `runs-on` as: Blacksmith label if
+`DSH_CI_FAILOVER_LINUX` is `blacksmith`; in-house self-hosted pool if
+that variable is `selfhosted` and Dependabot predicates pass; otherwise
+the default label `dsh-ubuntu-24-04-16core`.
+
+Unset `DSH_CI_FAILOVER_LINUX` selects `dsh-ubuntu-24-04-16core`, an
+upstream hosted-enterprise runner label, **not** `ubuntu-latest`. Windows
+PR jobs likewise default to `dsh-windows-2025-16core`. This fork does
+not provide those labels, so the jobs remain queued. Future fork-CI
+remediation (not Phase 0) would add matching runners, set the failover
+repository variables to a pool this fork owns, or retarget `runs-on`.
+
+#### Jobs that ran correctly on this fork (GitHub-hosted labels)
+
+| Workflow / job | Label | Conclusion |
+|---|---|---|
+| CI / node 22.19, 24.9, 26 | `ubuntu-latest` | success |
+| CI / node 24 / benchmarks | `ubuntu-24.04` | success |
+| CI / python 3.10 / keyless SDK | `ubuntu-latest` | success |
+| CI / python runtime plan + wheel build steps | `ubuntu-latest` / `windows-2025` | success until live-API preflight |
+| Node Addon System (matrix + darwin/linux) | `ubuntu-24.04`, `ubuntu-24.04-arm`, `macos-15-intel`, `macos-latest` | success |
+| Release (dsh) Dependency layout + Pack | `ubuntu-24.04` | success (self-hosted gate false; fallback `ubuntu-24.04`) |
+| Release (vendor) Pack npm tarballs | `ubuntu-24.04` | success (same fallback) |
+
+#### Jobs queued because the required runner does not exist
+
+| Workflow / job | `runs-on` label | Status |
+|---|---|---|
+| CI / node 24 / static | `dsh-ubuntu-24-04-16core` | queued |
+| CI / node 24 / coverage | `dsh-ubuntu-24-04-16core` | queued |
+| CI / node 24 / snapshots and artifacts | `dsh-ubuntu-24-04-16core` | queued |
+| CI / windows node 24 / build | `dsh-windows-2025-16core` | queued |
+| CI / windows node 24 / coverage | `dsh-windows-2025-16core` | queued |
+| CI / windows node 24 / native tests | `dsh-windows-2025-16core` | queued |
+| CI / windows node 24 / observational | `dsh-windows-2025-16core` | queued |
+
+`all-checks-passed` defaults to `ubuntu-latest` but `needs` the queued
+enterprise jobs, so the required aggregate cannot finish.
+
+#### Jobs that failed only because fork secrets / tokens / app vars are missing
+
+Not source or runtime failures. Logs show successful checkout/install
+(or policy checkout) then a missing-credential error:
+
+| Workflow / job | Missing material | Log signal |
+|---|---|---|
+| E2E (real DeepSeek API) / e2e | `secrets.DEEPSEEK_API_KEY_EXTERNAL` | Preflight: `DEEPSEEK_API_KEY is empty` |
+| CI python runtime installed-wheel real API (linux/win) | `secrets.DEEPSEEK_API_KEY_EXTERNAL` | `DEEPSEEK_API_KEY_EXTERNAL is empty; the installed-wheel real API test cannot self-skip.` Same-repo PRs are not skipped (`head.repo.fork` is false). |
+| Build PR preview / cloudflare pages preview | `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` | wrangler: token required in non-interactive env (build itself reached upload) |
+| Issue policy / Issue lifecycle | `vars.DSH_ISSUE_APP_CLIENT_ID` and `secrets.DSH_ISSUE_APP_PRIVATE_KEY`; token owner is `deepseek-harness/deepseek-harness` | `client-id` must be a non-empty string |
+
+`e2e.yml` skips untrusted **fork PRs**; a branch PR on this repository
+is treated as trusted and then hard-fails the empty-secret preflight.
+
+#### Jobs that represent an actual source/runtime failure
+
+None observed on PR #4. Primary upstream static/coverage/snapshot gates
+never started (queued), so they are an **unrun** baseline, not a red
+runtime result.
+
+Upstream `verify-translation-pairing` requires every `docs/**` document to
+be a bilingual pair. This repository's planning files under `docs/plans/`
+and Phase 0 notes under `docs/notes/` / `docs/upstream-sync.md` are
+English-only by design. That is a documented fork documentation mismatch,
+not a reason to edit upstream pairing machinery in Phase 0.
+
+Workflows not exercised on this PR (master-only, path filters, or
+`workflow_dispatch`): `ci-master.yml`, `sandbox.yml`, `docs-pages.yml`,
+`expected-filenames.yml`, `e2b-e2e.yml`, `pi-ai-provider-e2e.yml`,
+release-publish / python-release / node-addon-system-release.
 
 Install warnings observed and not treated as failures:
 
@@ -291,8 +378,50 @@ See `SAFETY.md` at the imported commit. Material facts:
 
 A HEAD-tree scan after import found no tracked `.env` files, no filenames
 that look like private keys, and no `BEGIN * PRIVATE KEY` headers. Workflow
-files reference GitHub secret *names* only. Upstream history was not
-rewritten.
+files reference GitHub secret *names* only.
+
+### Full Git-history secret scan (2026-09-15)
+
+Scanned **all Git objects** reachable from this branch, not only HEAD.
+History was not rewritten. No force-push.
+
+Commands:
+
+- `git rev-list --objects --all` (417,547 ids)
+- `git cat-file --batch-check --batch-all-objects` then blob content scan
+  of 183,284 candidate blobs (size 1..2,000,000 bytes; skipped known
+  binary extensions; 12 NUL-binary blobs skipped)
+- High-confidence regexes: PEM/PGP private-key armor; `AKIA…`; GitHub
+  `ghp_` / `gho_` / `ghs_` / `github_pat_`; GitLab `glpat-`; Slack
+  `xox…`; Stripe `sk_live_` / `rk_live_`; `sk-` / `sk-ant-`; `npm_`;
+  Google `AIza…`; JWT-like triples; `aws_secret_access_key` /
+  `private_key` / `client_secret` quoted assignments
+- Complementary `git log --all -S` for private-key armor and those token
+  prefixes
+- `git log --all --diff-filter=A` for `.pem`, `.p12`, `.pfx`, `.p8`,
+  `.env`, `id_rsa`, `id_ed25519`, `*credentials.json`,
+  `*service-account*.json` — **no such files added**
+
+Results: 41 regex hits on 11 paths. **No live production credential
+identified.** Every hit is dummy material used to test telemetry
+redaction. Introducing commits are ancestors of imported SHA
+`c291e7961a515f6d7af9304e7fd1d257929aef26` (existed upstream). None appear
+in this project's unique commits.
+
+| Path (historical and/or current) | Finding types | At imported SHA? | At HEAD? | Severity | Origin |
+|---|---|---|---|---|---|
+| `packages/session/session-telemetry-otel/tests/fixtures/driver.ts` | dummy `sk-…` fixture | yes | yes | info (fixture) | existed upstream |
+| `packages/session/session-telemetry-otel/tests/loader-composition.e2e.ts` | dummy `sk-…` fixture | yes | yes | info (fixture) | existed upstream |
+| `packages/session/session-telemetry/tests/redact.spec.ts` | dummy `sk-fixture*` at HEAD | yes (current path) | yes | info (fixture) | existed upstream |
+| Historical `packages/telemetry/session-telemetry/tests/redact.spec.ts` and deleted sdk/scaffold telemetry redactor specs | dummy PEM armor, `AKIA…`, GitHub PAT *shape*, Slack *shape*, JWT *shape* | no | no | info (fixture) | existed upstream; later deleted or moved upstream |
+| Deleted upstream telemetry packages (`packages/sdk/telemetry/…`, `packages/scaffold/telemetry/…`, `packages/telemetry/session-telemetry…`, `examples/headless-agent/tests/fixtures/telemetry-otel-driver.ts`) | same dummy redactor corpus, including one `packages/sdk/telemetry/src/redaction-contract.ts` blob (`e92b34bd7e42cc84ddcbe9233c30e5a58ba53e5a`, 2026-07-20) with an inline dummy `sk-…` used as a redaction contract sample | no | no | info (fixture) | existed upstream; later deleted upstream |
+
+HEAD still contains upstream dummy `sk-fixture*` strings in telemetry tests.
+HEAD contains **no** PEM private-key armor and **no** GitHub PAT / Slack /
+`AKIA` matches.
+
+This project's unique commits (docs/roadmap/inspection only, plus the
+merge commit) introduced **no** secret-scan hits.
 
 ## Files added outside the upstream import
 
