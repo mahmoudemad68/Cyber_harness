@@ -13,11 +13,15 @@ import {
 const root = resolve(import.meta.dirname, '../..')
 const forkRepo = 'mahmoudemad68/Cyber_harness'
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 function loadWorkflow(name: string): Record<string, unknown> {
   const workflow: unknown = yaml.load(
     readFileSync(resolve(root, '.github/workflows', name), 'utf8'),
   )
-  if (typeof workflow !== 'object' || workflow === null || Array.isArray(workflow)) {
+  if (!isRecord(workflow)) {
     throw new TypeError(`${name} must define a workflow`)
   }
   return workflow
@@ -25,16 +29,14 @@ function loadWorkflow(name: string): Record<string, unknown> {
 
 function workflowJob(name: string, job: string): Record<string, unknown> {
   const workflow = loadWorkflow(name)
-  if (
-    typeof workflow.jobs !== 'object'
-    || workflow.jobs === null
-    || Array.isArray(workflow.jobs)
-    || typeof (workflow.jobs as Record<string, unknown>)[job] !== 'object'
-    || (workflow.jobs as Record<string, unknown>)[job] === null
-  ) {
+  if (!isRecord(workflow.jobs)) {
+    throw new TypeError(`${name} must define jobs`)
+  }
+  const found = workflow.jobs[job]
+  if (!isRecord(found)) {
     throw new TypeError(`${name} must define job ${job}`)
   }
-  return (workflow.jobs as Record<string, Record<string, unknown>>)[job]
+  return found
 }
 
 function evaluateRunsOn(
