@@ -163,12 +163,13 @@ without rewriting workflows from scratch.
    `if` stays undefined (upstream unit test pin).
 7. **`scripts/translation-pairing.manifest.json`** — exclude this
    project's documentation paths listed above.
-8. **`scripts/fork-owned-docs.ts`**, consumed by **`scripts/verify-md-wrap.ts`**,
-   **`scripts/verify-md-links.ts`**, and **`scripts/verify-mermaid.ts`** —
-   skip the same project-owned paths so DeepSeek's wrap, link, and mermaid
-   gates still cover DeepSeek docs without reformatting this project's
-   planning notes, treating planned Phase 1+ package paths as missing files,
-   or failing on roadmap sequence diagrams that Mermaid cannot parse.
+8. **`scripts/fork-owned-docs.ts`**, consumed by wrap, link, mermaid,
+   package-path, doc-typecheck, and type-equivalence gates —
+   skip the same project-owned paths so DeepSeek's documentation gates still
+   cover DeepSeek docs without reformatting this project's planning notes,
+   treating planned or historical package paths as missing files, compiling
+   roadmap TypeScript sketches, or failing on roadmap sequence diagrams
+   that Mermaid cannot parse.
 9. **`scripts/ci-isolate-workspace-fixture.sh`** and
    **`scripts/tests/fork-ci.spec.ts`** — fork-only helpers/tests.
 
@@ -183,6 +184,6 @@ without rewriting workflows from scratch.
    Windows jobs, python-runtime, issue-lifecycle token step, e2e
    bubblewrap, POSIX live-API `exit 1`), restore the pin and move fork
    behavior to an extra `&&` clause or overlay workflow.
-4. Re-run `pnpm exec vitest run scripts/ci-workflow.spec.ts scripts/tests/ci-master-platforms.spec.ts scripts/preview-workflow.spec.ts scripts/tests/fork-ci.spec.ts`. Keep `scripts/fork-owned-docs.ts` wired into wrap, link, and mermaid gates if those files are regenerated.
+4. Re-run `pnpm exec vitest run scripts/ci-workflow.spec.ts scripts/tests/ci-master-platforms.spec.ts scripts/preview-workflow.spec.ts scripts/tests/fork-ci.spec.ts`. Keep `scripts/fork-owned-docs.ts` wired into wrap, link, mermaid, package-path, doc-typecheck, and type-equivalence gates if those files are regenerated.
 5. Keep `ci-fork.yml` as the required aggregate even if upstream
    `all checks passed` becomes usable here.

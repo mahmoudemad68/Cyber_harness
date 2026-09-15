@@ -11,6 +11,7 @@
 import { globSync, readFileSync, existsSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import ts from 'typescript'
+import { isForkOwnedDocumentation } from './fork-owned-docs.ts'
 import { markdownFences } from './markdown.ts'
 import { partitionPairedMarkdownDerivatives } from './paired-markdown-derivatives.ts'
 import { isArchivedAgentNotePath } from './repo-files.ts'
@@ -280,7 +281,7 @@ const docSet = new Set<string>()
 for (const pattern of MARKDOWN_GLOBS) {
   for (const match of globSync(pattern, { cwd: root })) {
     const normalized = match.split(sep).join('/')
-    if (!isArchivedAgentNotePath(normalized)) docSet.add(normalized)
+    if (!isArchivedAgentNotePath(normalized) && !isForkOwnedDocumentation(normalized)) docSet.add(normalized)
   }
 }
 const extractedBlocks: EquivBlock[] = [...docSet].sort().flatMap(extractEquivBlocks)

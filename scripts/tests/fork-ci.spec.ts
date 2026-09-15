@@ -89,7 +89,9 @@ describe('fork CI runner selection', () => {
   it('builds the native host addon before the headless snapshot smoke', () => {
     const steps = workflowJob('ci-fork.yml', 'snapshot').steps
     expect(Array.isArray(steps)).toBe(true)
-    const commands = (steps as Array<Record<string, unknown>>).map(step => String(step.run ?? ''))
+    const commands = (steps as Array<Record<string, unknown>>).map(
+      step => typeof step.run === 'string' ? step.run : '',
+    )
     const native = commands.findIndex(run => run.includes('build:native-system'))
     const host = commands.findIndex(run => run.includes('build:lib:host'))
     expect(native).toBeGreaterThanOrEqual(0)
@@ -117,6 +119,9 @@ describe('fork documentation pairing exclusions', () => {
       'scripts/verify-md-wrap.ts',
       'scripts/verify-md-links.ts',
       'scripts/verify-mermaid.ts',
+      'scripts/verify-package-paths.ts',
+      'scripts/doc-typecheck.ts',
+      'scripts/verify-type-equiv.ts',
     ]) {
       const source = readFileSync(resolve(root, file), 'utf8')
       expect(source).toContain("from './fork-owned-docs.ts'")
