@@ -246,6 +246,25 @@ as Phase 0 pass/fail gates:
 - Imported GitHub workflows target upstream runners, secrets
   (`DEEPSEEK_API_KEY_EXTERNAL`, `NPM_TOKEN`), and repository name checks.
   They may fail or skip on `mahmoudemad68/Cyber_harness`.
+
+  Observed on PR #4 against this fork (commit `69ada399b5`, 2026-09-15):
+
+  - Passed: Node addon matrix; upstream `check:ci` node 22.19 / 24.9 / 26
+    compatibility; Linux benchmarks; Python keyless SDK; dsh/vendor pack;
+    one Python runtime wheel plan/build.
+  - Failed without this fork's secrets or upstream tokens, not because the
+    merge changed runtime source:
+    - `E2E (real DeepSeek API)` — Preflight requires `DEEPSEEK_API_KEY`.
+    - Python runtime installed-wheel real API test (linux/win) —
+      `DEEPSEEK_API_KEY_EXTERNAL is empty; the installed-wheel real API test
+      cannot self-skip.`
+    - Cloudflare Pages preview — Upload to Cloudflare Pages failed.
+    - Issue policy / Issue lifecycle — "Create Project read token" /
+      "Create project token" (upstream GitHub App/project credentials).
+  - Still queued on upstream runner label `dsh-ubuntu-24-04-16core`, which
+    this fork does not provide: `node 24 / static`, `coverage`,
+    `snapshots and artifacts`, and the Windows node 24 jobs. Phase 0 does
+    not retarget upstream workflows to GitHub-hosted runners.
 - Upstream `verify-translation-pairing` requires every `docs/**` document to
   be a bilingual pair. This repository's planning files under `docs/plans/`
   and Phase 0 notes under `docs/notes/` / `docs/upstream-sync.md` are
