@@ -255,6 +255,29 @@ describe('package-contributed preset roots', () => {
     expect(ctx.agentPresets.roots.map(root => root.path)).toEqual([first])
   })
 
+  it('does not splice another contribution when the disposer runs after the fiber already unregistered', async () => {
+    const first = await tempRoot()
+    const second = await tempRoot()
+    await seedPreset(first, 'keep-me')
+    await seedPreset(second, 'drop-me')
+    const ctx = await roster()
+    ctx.agentPresets.registerRoot({ path: first, trust: 'system' })
+    let drop: () => void = () => undefined
+    const fiber = await ctx.plugin({
+      name: 'contribute-then-dispose',
+      inject: ['agentPresets'],
+      apply(pluginCtx: Context) {
+        drop = pluginCtx.agentPresets.registerRoot({ path: second, trust: 'system' })
+      },
+    })
+
+    await fiber.dispose()
+    drop()
+
+    expect((await ctx.agentPresets.list()).map(preset => preset.id)).toEqual(['keep-me'])
+    expect(ctx.agentPresets.roots.map(root => root.path)).toEqual([first])
+  })
+
   it('unregisters automatically when the calling plugin fiber disposes', async () => {
     const root = await tempRoot()
     await seedPreset(root, 'ephemeral')

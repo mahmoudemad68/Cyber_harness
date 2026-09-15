@@ -584,9 +584,10 @@ export class AgentPresets extends TypertRemoteService {
     const unregister = this.ctx.effect(() => {
       this.contributedRoots.push(contribution)
       return () => {
-        const index = this.contributedRoots.indexOf(contribution)
-        if (index === -1) return
-        this.contributedRoots.splice(index, 1)
+        // `splice(indexOf)` is not safe here: a slot already gone is -1, and
+        // `splice(-1, 1)` would delete a different contribution.
+        const remaining = this.contributedRoots.filter(root => root !== contribution)
+        this.contributedRoots.splice(0, this.contributedRoots.length, ...remaining)
       }
     }, 'agentPresets.registerRoot()')
     // Effect disposers return `Promise<void>`; the public disposer is void.
