@@ -74,7 +74,7 @@ async function run(
   args: unknown = {},
   agent?: Agent,
   signal: AbortSignal = testToolSignal,
-): Promise<{ result: Awaited<ReturnType<ToolRuntime['execute']>>; exec?: ToolExecution }> {
+): Promise<{ result: Awaited<ReturnType<ToolRuntime['execute']>>; exec: ToolExecution | undefined }> {
   let exec: ToolExecution | undefined
   const dispose = ctx.on('tools/result', (observed) => { exec = observed })
   try {

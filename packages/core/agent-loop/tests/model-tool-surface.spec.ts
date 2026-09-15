@@ -89,8 +89,12 @@ describe('model tool surface through the agent loop', () => {
     const call = events.find(event => event.type === 'tool/call')
     expect(call?.type === 'tool/call' && call.data.name).toBe('ping')
     expect(call?.type === 'tool/call' && call.data.arguments).toBe('{"text":"hi"}')
-    const result = events.find(event => event.type === 'tool/result')
-    expect(result?.type === 'tool/result' && result.data.content).toEqual([
+    const resultEvent = events.find(event => event.type === 'tool/result')
+    expect(resultEvent?.type === 'tool/result').toBe(true)
+    if (resultEvent?.type !== 'tool/result') throw new Error('expected tool/result')
+    const toolResultBlock = resultEvent.data.message.content[0]
+    expect(toolResultBlock).toMatchObject({ type: 'tool-result', isError: false })
+    expect(toolResultBlock.type === 'tool-result' ? toolResultBlock.content : undefined).toEqual([
       { type: 'text', text: 'echo:hi' },
     ])
     const secondMessages = adapter.requests[1]?.messages ?? []
