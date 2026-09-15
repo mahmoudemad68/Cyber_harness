@@ -2623,6 +2623,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the exact disposer that restores the deployment default.',
       },
       {
+        signature: 'registerSurface(surface: ModelToolSurface): () => void',
+        description: 'Declare the model-facing name mapping for the calling agent scope. Nearest scope on the chain wins, so a preset\'s standing declaration covers every agent joined under it. Identity (no declaration) is the default: exposed names equal registered names.\n\nScoped only, and one declaration per scope. A process-global mapping would rename tools for every agent, including `standard`.',
+        parameters: [{ name: 'surface', description: 'pure projection from canonical schemas to exposed names.' }],
+        returns: 'the exact disposer that restores the identity mapping.',
+      },
+      {
         signature: 'register(definition: ToolDefinition): () => void',
         description: 'Register globally or in the calling agent scope. Scoped tools shadow globals; duplicates within one layer and the reserved `run_code` name fail.',
         parameters: [{ name: 'definition', description: 'tool schema, execution, and optional finalization/presentation callbacks.' }],
@@ -2648,9 +2654,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'schemas(scope?: ScopeKey): ToolSchema[]',
-        description: 'Project visible definitions onto the allowlisted model-facing schema fields, excluding execution and presentation callbacks.',
+        description: 'Project visible definitions onto the allowlisted model-facing schema fields, excluding execution and presentation callbacks. A scoped ModelToolSurface rewrites only name and description; parameters stay the registered schema. The identity mapping is the default.',
         parameters: [{ name: 'scope', description: 'the viewing scope (the agent); omitted = the global view.' }],
-        returns: 'one deep-cloned schema per visible tool.',
+        returns: 'one deep-cloned schema per tool the model may see.',
       },
       {
         signature: 'executionMode(exec: ToolExecutionInput): ToolExecutionMode',
@@ -3460,8 +3466,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'tools/change',
     mode: 'emit',
     signature: '\'tools/change\'(): void',
-    summary: 'A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only).',
-    description: 'A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only). An UNFILTERED registry-subject notification, deliberately not scope-filtered dispatch: a global change concerns every agent\'s next assembly, so a scoped listener subscribing here sees every change, not just its own scope\'s.',
+    summary: 'A tool was registered or unregistered, a scoped restriction changed, or a model-facing name mapping changed (the available tool set changed — possibly for one scope only).',
+    description: 'A tool was registered or unregistered, a scoped restriction changed, or a model-facing name mapping changed (the available tool set changed — possibly for one scope only). An UNFILTERED registry-subject notification, deliberately not scope-filtered dispatch: a global change concerns every agent\'s next assembly, so a scoped listener subscribing here sees every change, not just its own scope\'s.',
     parameters: [],
   },
   {
@@ -4743,6 +4749,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ModelReasoningEffort',
     declaration: 'export interface ModelReasoningEffort {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n}',
+  },
+  {
+    name: 'ModelToolSurface',
+    declaration: 'export interface ModelToolSurface {\n    readonly id: string;\n    project(schema: Readonly<ToolSchema>): ModelToolSurfaceProjection | undefined;\n}',
+  },
+  {
+    name: 'ModelToolSurfaceProjection',
+    declaration: 'export interface ModelToolSurfaceProjection {\n    readonly exposedName: string;\n    readonly description?: string;\n}',
   },
   {
     name: 'ObjectJsonSchema',
@@ -6058,7 +6072,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecution',
-    declaration: 'export interface ToolExecution extends ToolExecutionInput {\n    readonly rootCallId: ToolCallId;\n    readonly token: ToolExecutionToken;\n}',
+    declaration: 'export interface ToolExecution extends ToolExecutionInput {\n    readonly rootCallId: ToolCallId;\n    readonly token: ToolExecutionToken;\n    readonly requestedName?: string;\n}',
   },
   {
     name: 'ToolExecutionFailure',
@@ -6134,7 +6148,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolRuntime',
-    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
+    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    registerSurface(surface: ModelToolSurface): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
   },
   {
     name: 'ToolRuntimeScheduler',

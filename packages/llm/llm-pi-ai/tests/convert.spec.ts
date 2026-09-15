@@ -91,6 +91,23 @@ describe('toPiContext', () => {
     ])
   })
 
+  it('copies an exposed alias name and its parameters without rewriting them', () => {
+    const parameters = {
+      type: 'object',
+      properties: { text: { type: 'string' } },
+      required: ['text'],
+    }
+    const context = toPiContext({
+      provider: 'deepseek',
+      model: 'm',
+      messages: [],
+      tools: [{ name: 'ping', description: 'exposed ping', parameters }],
+    })
+    expect(context.tools).toEqual([
+      { name: 'ping', description: 'exposed ping', parameters },
+    ])
+  })
+
   it('omits empty tools and absent system prompt', () => {
     const context = toPiContext({ provider: 'deepseek', model: 'm', messages: [], tools: [] })
     expect(context.systemPrompt).toBeUndefined()

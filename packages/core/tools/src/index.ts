@@ -13,7 +13,7 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { assertNever, deepFreeze, snapshotJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
-import type { ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
+import type { AssembleContext, PromptAssembly, ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 // Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
 // augmentation. The seam stays optional at runtime — see `serviceAsk`.
@@ -188,12 +188,12 @@ declare module '@deepseek-ai/cordis' {
      */
     'tools/result'(this: Scoped<ToolRuntime>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined
     /**
-     * A tool was registered or unregistered, or a scoped restriction changed
-     * (the available tool set changed — possibly for one scope only). An
-     * UNFILTERED registry-subject notification, deliberately not scope-filtered
-     * dispatch: a global change concerns every agent's next assembly, so a
-     * scoped listener subscribing here sees every change, not just its own
-     * scope's.
+     * A tool was registered or unregistered, a scoped restriction changed, or
+     * a model-facing name mapping changed (the available tool set changed —
+     * possibly for one scope only). An UNFILTERED registry-subject
+     * notification, deliberately not scope-filtered dispatch: a global change
+     * concerns every agent's next assembly, so a scoped listener subscribing
+     * here sees every change, not just its own scope's.
      * @mode emit
      */
     'tools/change'(): void
@@ -311,6 +311,10 @@ export interface ToolExecutionInput {
    * a root execution; nested dispatchers propagate the enclosing value.
    */
   readonly rootCallId?: ToolCallId
+  /**
+   * Caller-supplied tool name (the name the model requested). The registry
+   * reverse-resolves it onto the canonical registered name before policy.
+   */
   readonly name: string
   /** Losslessly JSON-serializable parsed arguments (tools validate their own schema). */
   readonly arguments: unknown
@@ -374,6 +378,11 @@ export interface ToolExecution extends ToolExecutionInput {
   readonly rootCallId: ToolCallId
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
   readonly token: ToolExecutionToken
+  /**
+   * Name the model supplied for this call when it differs from the canonical
+   * {@link name}. Absent when the two are equal.
+   */
+  readonly requestedName?: string
 }
 
 /**
@@ -643,6 +652,36 @@ function errorInfo(error: unknown): ToolErrorInfo | undefined {
 /** How the registry presents its tools to the model (see {@link Config.mode}). */
 export type ToolPresentationMode = 'native' | 'ptc' | 'both'
 
+/** Model-facing name and optional description for one canonical tool schema. */
+export interface ModelToolSurfaceProjection {
+  /** Name sent to the model and accepted on reverse resolution. */
+  readonly exposedName: string
+  /** Replaces the registered description when present. */
+  readonly description?: string
+}
+
+/**
+ * Scoped mapping from canonical tools to model-facing names. `project` may
+ * hide a tool with `undefined`. It must not rewrite `parameters`.
+ */
+export interface ModelToolSurface {
+  /** Identifier used in conflict and projection-failure diagnostics. */
+  readonly id: string
+  /**
+   * Map one visible canonical schema to a model-facing name, or `undefined`
+   * to omit the tool from the model-facing set.
+   * @param schema - registered name, description, and parameter schema.
+   * @returns the exposed name and optional description, or `undefined` to hide.
+   */
+  project(schema: Readonly<ToolSchema>): ModelToolSurfaceProjection | undefined
+}
+
+/** One projected schema paired with the registered name that executes it. */
+interface CanonicalProjection {
+  readonly canonicalName: string
+  readonly schema: ToolSchema
+}
+
 /** Plugin config: how the registered tools are presented to the model. */
 export interface Config {
   /**
@@ -714,6 +753,11 @@ class ToolLayer implements ScopeLayer {
    * "which form does the model see" is a contradiction, not a merge.
    */
   mode: ToolPresentationMode | undefined
+  /**
+   * Model-facing name mapping this scope declared. One cell: two answers to
+   * "which exposed name set does the model see" is a contradiction, not a merge.
+   */
+  surface: ModelToolSurface | undefined
 
   constructor(scope: ScopeKey | undefined) {
     this.tools = new NamedEntries(name => new Error(scope === undefined
@@ -724,7 +768,7 @@ class ToolLayer implements ScopeLayer {
   /** Whether every contribution table in this aggregate layer is empty. */
   isEmpty(): boolean {
     return this.tools.isEmpty() && this.restrictions.isEmpty() && this.guards.isEmpty()
-      && this.mode === undefined
+      && this.mode === undefined && this.surface === undefined
   }
 
   /** Whether every compiled restriction in this layer admits a global tool name. */
@@ -823,6 +867,7 @@ export class ToolRuntime extends Service {
     this.defaultMode = config.mode ?? 'native'
     this.maxParallelSubCalls = resolveMaxParallelSubCalls(config.maxParallelSubCalls)
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
+    ctx.on('system-prompt/assemble', (assembly, context, next) => this.projectAssembledTools(assembly, context, next))
     if (this.defaultMode !== 'native') {
       ctx.systemPrompt.section(this.collapseSection())
       ctx.systemPrompt.section(this.sdkSection())
@@ -903,6 +948,132 @@ export class ToolRuntime extends Service {
   }
 
   /**
+   * The model-facing mapping one scope's agent uses: its own declaration,
+   * else the nearest ancestor's, else identity.
+   * @param scope - the calling agent, or undefined for the global view.
+   * @returns the declared surface, or undefined for the identity mapping.
+   */
+  private surfaceFor(scope?: ScopeKey): ModelToolSurface | undefined {
+    const layers = this.layers.chainLayers(scope)
+    for (let index = layers.length - 1; index >= 0; index -= 1) {
+      const surface = layers[index]?.surface
+      if (surface !== undefined) return surface
+    }
+    return undefined
+  }
+
+  /**
+   * Project visible definitions onto model-facing schemas. Identity (no
+   * surface) keeps registered names. `run_code` stays identity whenever it is
+   * visible. Duplicate exposed names fail closed.
+   * @param scope - the viewing scope (the agent); omitted = the global view.
+   * @param detachParameters - whether to snapshot parameters away from the definition.
+   * @returns one row per tool the model may see, paired with its registered name.
+   */
+  private projectDefinitions(scope: ScopeKey | undefined, detachParameters: boolean): CanonicalProjection[] {
+    const surface = this.surfaceFor(scope)
+    const rows: CanonicalProjection[] = []
+    const exposedToCanonical = new Map<string, string>()
+    const remember = (exposedName: string, canonicalName: string, schema: ToolSchema): void => {
+      const existing = exposedToCanonical.get(exposedName)
+      if (existing !== undefined) {
+        if (surface === undefined) {
+          /* v8 ignore next -- identity projection uses unique registered names */
+          throw new Error(`duplicate exposed name "${exposedName}"`)
+        }
+        throw new Error(`model tool surface "${surface.id}" maps "${existing}" and "${canonicalName}" to the same exposed name "${exposedName}"`)
+      }
+      exposedToCanonical.set(exposedName, canonicalName)
+      rows.push({ canonicalName, schema })
+    }
+    for (const definition of this.view(scope).visible.values()) {
+      const schema = this.schemaOf(definition, detachParameters)
+      if (surface === undefined || schema.name === RUN_CODE_NAME) {
+        remember(schema.name, schema.name, schema)
+        continue
+      }
+      let projection: ModelToolSurfaceProjection | undefined
+      try {
+        projection = surface.project(schema)
+      } catch (error: unknown) {
+        throw new Error(
+          `model tool surface "${surface.id}" project() failed for "${schema.name}": ${errorMessage(error)}`,
+          { cause: error },
+        )
+      }
+      if (projection === undefined) continue
+      const exposedName = projection.exposedName
+      if (exposedName.length === 0) {
+        throw new Error(`model tool surface "${surface.id}" mapped "${schema.name}" to an empty exposed name`)
+      }
+      if (exposedName === RUN_CODE_NAME) {
+        throw new Error(`model tool surface "${surface.id}" cannot expose "${schema.name}" as reserved name "${RUN_CODE_NAME}"`)
+      }
+      remember(exposedName, schema.name, {
+        name: exposedName,
+        description: projection.description ?? schema.description,
+        parameters: schema.parameters,
+      })
+    }
+    return rows
+  }
+
+  /**
+   * Reverse-resolve a model-requested name to the registered name that may
+   * execute. Hidden, restricted, and unmapped names return undefined.
+   * @param requestedName - the name supplied by the model or SDK binding.
+   * @param scope - the viewing scope (the agent); omitted = the global view.
+   * @returns the canonical name, or undefined when the name is not exposed.
+   */
+  private canonicalNameFor(requestedName: string, scope?: ScopeKey): string | undefined {
+    for (const row of this.projectDefinitions(scope, false)) {
+      if (row.schema.name === requestedName) return row.canonicalName
+    }
+    return undefined
+  }
+
+  /**
+   * Rewrite ToolRuntime-owned assemble tools onto exposed names after
+   * `toolOrder` has matched canonical names. Identity returns the assembly
+   * unchanged.
+   * @param assembly - the assembly built from registered providers.
+   * @param context - the caller's per-assembly context.
+   * @param next - remaining assemble listeners.
+   * @returns the assembly whose owned tools use exposed names.
+   */
+  private async projectAssembledTools(
+    _assembly: PromptAssembly,
+    context: AssembleContext,
+    next: () => Promise<PromptAssembly>,
+  ): Promise<PromptAssembly> {
+    const assembled = await next()
+    const surface = this.surfaceFor(context.scope)
+    if (surface === undefined) return assembled
+    const visible = this.view(context.scope).visible
+    const projected = this.projectDefinitions(context.scope, false)
+    const byCanonical = new Map(projected.map(row => [row.canonicalName, row.schema]))
+    const exposedNames = new Set(projected.map(row => row.schema.name))
+    const tools: ToolSchema[] = []
+    for (const tool of assembled.tools) {
+      if (!visible.has(tool.name)) {
+        if (exposedNames.has(tool.name)) {
+          throw new Error(`model tool surface "${surface.id}" maps a registry tool to "${tool.name}", which another tool provider already contributed`)
+        }
+        tools.push(tool)
+        continue
+      }
+      const mapped = byCanonical.get(tool.name)
+      if (mapped === undefined) continue
+      tools.push({
+        name: mapped.name,
+        description: mapped.description,
+        parameters: tool.parameters,
+      })
+    }
+    return { ...assembled, tools }
+  }
+
+  /**
    * The reserved `run_code` transport, built on first need.
    *
    * It never enters the global layer: per-agent restrictions must not remove
@@ -963,6 +1134,35 @@ export class ToolRuntime extends Service {
     }.bind(this), 'tools.presentAs()')
     // oxlint-disable-next-line typescript/no-misused-promises -- synchronous composite teardown
     return dispose
+  }
+
+  /**
+   * Declare the model-facing name mapping for the calling agent scope.
+   * Nearest scope on the chain wins, so a preset's standing declaration
+   * covers every agent joined under it. Identity (no declaration) is the
+   * default: exposed names equal registered names.
+   *
+   * Scoped only, and one declaration per scope. A process-global mapping
+   * would rename tools for every agent, including `standard`.
+   * @param surface - pure projection from canonical schemas to exposed names.
+   * @returns the exact disposer that restores the identity mapping.
+   */
+  registerSurface(surface: ModelToolSurface): () => void {
+    const ctx = this.ctx
+    if (scopeOf(ctx) === undefined) {
+      throw new Error('tools.registerSurface() requires a scoped context (agent.ctx): the identity mapping is the default when no surface is declared')
+    }
+    return this.layers.effect(
+      ctx,
+      (layer) => {
+        if (layer.surface !== undefined) {
+          throw new Error(`tools.registerSurface("${surface.id}") conflicts with "${layer.surface.id}" already declared for this scope; one composition selects one model tool surface`)
+        }
+        layer.surface = surface
+        return () => { layer.surface = undefined }
+      },
+      { label: 'tools.registerSurface()' },
+    )
   }
 
   /**
@@ -1201,44 +1401,64 @@ export class ToolRuntime extends Service {
    * (`get`) is presentation-agnostic; here a MODEL-DIRECT call under `ptc`
    * may only name the reserved `run_code` transport, while a nested
    * sub-dispatch (a `parent` token set — the `run_code` SDK calling a tool
-   * it bound) may call any visible tool. Denial surfaces as `UNKNOWN_TOOL`
-   * through the executor, matching an absent definition.
-   * @param name - the tool name as registered.
+   * it bound) may call any exposed visible tool. Reverse resolution maps
+   * the model-requested name onto the canonical registered name before
+   * lookup. Denial surfaces as `UNKNOWN_TOOL` through the executor, matching
+   * an absent definition.
+   * @param name - the model-requested or SDK-binding name.
    * @param scope - the viewing scope (the agent); omitted = the global view.
    * @param nested - whether the call is a transport sub-dispatch, not a model-direct call.
    * @returns the definition that may run, or undefined when the call must be rejected.
    */
   private resolveExecution(name: string, scope: ScopeKey | undefined, nested: boolean): ToolDefinition | undefined {
-    const tool = this.get(name, scope)
+    const canonical = this.canonicalNameFor(name, scope)
+    if (canonical === undefined) return undefined
+    const tool = this.get(canonical, scope)
     if (tool === undefined) return undefined
-    if (this.collapses(name, scope, nested)) return undefined
+    if (this.collapses(canonical, scope, nested)) return undefined
     return tool
   }
 
   /**
+   * Look up the definition that may run for a pipeline execution. After
+   * {@link createExecution}, {@link ToolExecution.name} is already the
+   * registered name; reverse resolution must use the model-requested name,
+   * which is absent from the exposed set when a surface renamed the tool.
+   * @param exec - pipeline execution whose `requestedName` is the model-facing name when it differs.
+   * @returns the definition that may run, or undefined when the call must be rejected.
+   */
+  private resolveRegistered(exec: ToolExecution): ToolDefinition | undefined {
+    return this.resolveExecution(exec.requestedName ?? exec.name, exec.agent, exec.parent !== undefined)
+  }
+
+  /**
    * Project visible definitions onto the allowlisted model-facing schema fields,
-   * excluding execution and presentation callbacks.
+   * excluding execution and presentation callbacks. A scoped
+   * {@link ModelToolSurface} rewrites only name and description; parameters
+   * stay the registered schema. The identity mapping is the default.
    * @param scope - the viewing scope (the agent); omitted = the global view.
-   * @returns one deep-cloned schema per visible tool.
+   * @returns one deep-cloned schema per tool the model may see.
    */
   schemas(scope?: ScopeKey): ToolSchema[] {
-    return [...this.view(scope).visible.values()].map(definition => this.schemaOf(definition, true))
+    return this.projectDefinitions(scope, true).map(row => row.schema)
   }
 
   /** Project visible callable tools onto the generated PTC mode SDK contract. */
   private sdkSchemas(scope?: ScopeKey): ToolSdkSchema[] {
+    const byCanonical = new Map(
+      this.projectDefinitions(scope, true).map(row => [row.canonicalName, row.schema]),
+    )
     return [...this.view(scope).visible.values()]
       .filter(definition => definition.name !== RUN_CODE_NAME)
-      .map((definition): ToolSdkSchema => {
+      .flatMap((definition): ToolSdkSchema[] => {
+        const schema = byCanonical.get(definition.name)
+        if (schema === undefined) return []
         const output = snapshotJsonValue(definition.output.schema)
         /* v8 ignore next -- registration already validated and retained this schema as lossless JSON. */
         if (output === undefined) {
           throw new Error(`tool "${definition.name}" output schema must be lossless JSON before SDK projection`)
         }
-        return {
-          ...this.schemaOf(definition, true),
-          output,
-        }
+        return [{ ...schema, output }]
       })
   }
 
@@ -1356,7 +1576,9 @@ export class ToolRuntime extends Service {
     const token = createExecutionToken()
     const callId = exec.callId
     const rootCallId = exec.rootCallId ?? callId
-    const name = exec.name
+    const requestedName = exec.name
+    const canonicalName = this.canonicalNameFor(requestedName, exec.agent)
+    const name = canonicalName ?? requestedName
     const agent = exec.agent
     const parent = exec.parent
     const signal = exec.signal
@@ -1367,8 +1589,9 @@ export class ToolRuntime extends Service {
     // observe — or worse, approve — a call that can only fail. An unknown tool
     // keeps the historical dispatch-stage `UNKNOWN_TOOL` path so policy
     // listeners still see every name that reaches the registry.
-    const visible = this.get(name, agent)
-    const collapsed = visible !== undefined && this.collapses(name, agent, parent !== undefined)
+    const visible = canonicalName !== undefined ? this.get(canonicalName, agent) : undefined
+    const collapsed = canonicalName !== undefined && visible !== undefined
+      && this.collapses(canonicalName, agent, parent !== undefined)
     const concludingExecutions = this.concludingExecutions
     const base = {
       token,
@@ -1376,6 +1599,7 @@ export class ToolRuntime extends Service {
       rootCallId,
       name,
       signal,
+      ...requestedName !== name ? { requestedName } : {},
       ...agent !== undefined ? { agent } : {},
       ...parent !== undefined ? { parent } : {},
       deferContext(context: UserMessage): void {
@@ -1427,8 +1651,8 @@ export class ToolRuntime extends Service {
           kind: 'final-result',
           exec: execution,
           result: toolErrorResult(new ToolNotFoundError(
-            name,
-            `only \`${RUN_CODE_NAME}\` is callable directly — call \`${name}\` from inside a \`${RUN_CODE_NAME}\` program instead`,
+            requestedName,
+            `only \`${RUN_CODE_NAME}\` is callable directly — call \`${requestedName}\` from inside a \`${RUN_CODE_NAME}\` program instead`,
           )),
         }
       }
@@ -1533,8 +1757,8 @@ export class ToolRuntime extends Service {
     }
     exec.signal = signal
     try {
-      const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
-      if (!tool) throw new ToolNotFoundError(exec.name)
+      const tool = this.resolveRegistered(exec)
+      if (!tool) throw new ToolNotFoundError(exec.requestedName ?? exec.name)
       state.bodyInvoked = true
       const returned = await tool.execute(exec.arguments, exec)
       const result = this.createSuccessResult(exec, tool, returned)
@@ -1755,8 +1979,8 @@ export class ToolRuntime extends Service {
       if (result.isError) {
         throw new TypeError('tools/post-execute cannot replace the value of a failed result')
       }
-      const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
-      if (tool === undefined) throw new ToolNotFoundError(exec.name)
+      const tool = this.resolveRegistered(exec)
+      if (tool === undefined) throw new ToolNotFoundError(exec.requestedName ?? exec.name)
       const replaced = this.createSuccessResult(exec, tool, decision.value)
       return this.markCanonical(exec, {
         ...replaced,
@@ -1824,8 +2048,8 @@ export class ToolRuntime extends Service {
         ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
       })
     }
-    const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
-    if (tool === undefined) throw new ToolNotFoundError(exec.name)
+    const tool = this.resolveRegistered(exec)
+    if (tool === undefined) throw new ToolNotFoundError(exec.requestedName ?? exec.name)
     const normalized = this.createSuccessResult(exec, tool, result.value)
     return this.markCanonical(exec, {
       ...normalized,

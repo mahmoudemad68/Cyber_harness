@@ -167,6 +167,38 @@ interface ToolRestriction {
 }
 ```
 
+## `ModelToolSurface` — scoped model-facing names
+
+`ctx.tools.registerSurface(surface)` declares one mapping for the calling agent or preset scope. Identity (no declaration) is the default: exposed names equal registered names. `project` may hide a tool with `undefined` and may replace name and description; it must not rewrite parameters. Duplicate exposed names, an empty exposed name, and exposing a non-transport tool as `run_code` fail when the registry projects. Reverse resolution accepts only current exposed names, so a hidden or restricted tool cannot be reached through an alias. `toolOrder` still matches registered names; the assemble waterfall rewrites owned tools afterward. Dispatch, policy, restrictions, and concurrency keep the registered name. `ToolExecution.requestedName` is set only when it differs.
+
+```ts type-equiv
+/** Model-facing name and optional description for one canonical tool schema. */
+interface ModelToolSurfaceProjection {
+  /** Name sent to the model and accepted on reverse resolution. */
+  readonly exposedName: string
+  /** Replaces the registered description when present. */
+  readonly description?: string
+}
+```
+
+```ts type-equiv
+/**
+ * Scoped mapping from canonical tools to model-facing names. `project` may
+ * hide a tool with `undefined`. It must not rewrite `parameters`.
+ */
+interface ModelToolSurface {
+  /** Identifier used in conflict and projection-failure diagnostics. */
+  readonly id: string
+  /**
+   * Map one visible canonical schema to a model-facing name, or `undefined`
+   * to omit the tool from the model-facing set.
+   * @param schema - registered name, description, and parameter schema.
+   * @returns the exposed name and optional description, or `undefined` to hide.
+   */
+  project(schema: Readonly<ToolSchema>): ModelToolSurfaceProjection | undefined
+}
+```
+
 ## Execution: extensible waterfalls plus monotonic policy
 
 `ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → optional definition-owned `finalizeContent` → `tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
@@ -189,6 +221,10 @@ interface ToolExecutionInput {
    * a root execution; nested dispatchers propagate the enclosing value.
    */
   readonly rootCallId?: ToolCallId
+  /**
+   * Caller-supplied tool name (the name the model requested). The registry
+   * reverse-resolves it onto the canonical registered name before policy.
+   */
   readonly name: string
   /** Losslessly JSON-serializable parsed arguments (tools validate their own schema). */
   readonly arguments: unknown
@@ -293,6 +329,11 @@ interface ToolExecution extends ToolExecutionInput {
   readonly rootCallId: ToolCallId
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
   readonly token: ToolExecutionToken
+  /**
+   * Name the model supplied for this call when it differs from the canonical
+   * {@link name}. Absent when the two are equal.
+   */
+  readonly requestedName?: string
 }
 ```
 
@@ -496,6 +537,19 @@ Tool registry and execution pipeline. Scoped registrations shadow globals; one v
 presentAs(mode: ToolPresentationMode): () => void
 
 /**
+ * Declare the model-facing name mapping for the calling agent scope.
+ * Nearest scope on the chain wins, so a preset's standing declaration
+ * covers every agent joined under it. Identity (no declaration) is the
+ * default: exposed names equal registered names.
+ *
+ * Scoped only, and one declaration per scope. A process-global mapping
+ * would rename tools for every agent, including `standard`.
+ * @param surface - pure projection from canonical schemas to exposed names.
+ * @returns the exact disposer that restores the identity mapping.
+ */
+registerSurface(surface: ModelToolSurface): () => void
+
+/**
  * Register globally or in the calling agent scope. Scoped tools shadow
  * globals; duplicates within one layer and the reserved `run_code` name fail.
  * @param definition - tool schema, execution, and optional finalization/presentation callbacks.
@@ -537,9 +591,11 @@ get(name: string, scope?: ScopeKey): ToolDefinition | undefined
 
 /**
  * Project visible definitions onto the allowlisted model-facing schema fields,
- * excluding execution and presentation callbacks.
+ * excluding execution and presentation callbacks. A scoped
+ * {@link ModelToolSurface} rewrites only name and description; parameters
+ * stay the registered schema. The identity mapping is the default.
  * @param scope - the viewing scope (the agent); omitted = the global view.
- * @returns one deep-cloned schema per visible tool.
+ * @returns one deep-cloned schema per tool the model may see.
  */
 schemas(scope?: ScopeKey): ToolSchema[]
 
@@ -581,16 +637,16 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 #### `tools/change` — emit
 
-A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only). An UNFILTERED registry-subject notification, deliberately not scope-filtered dispatch: a global change concerns every agent's next assembly, so a scoped listener subscribing here sees every change, not just its own scope's.
+A tool was registered or unregistered, a scoped restriction changed, or a model-facing name mapping changed (the available tool set changed — possibly for one scope only). An UNFILTERED registry-subject notification, deliberately not scope-filtered dispatch: a global change concerns every agent's next assembly, so a scoped listener subscribing here sees every change, not just its own scope's.
 
 ```ts cordis-catalog
 /**
- * A tool was registered or unregistered, or a scoped restriction changed
- * (the available tool set changed — possibly for one scope only). An
- * UNFILTERED registry-subject notification, deliberately not scope-filtered
- * dispatch: a global change concerns every agent's next assembly, so a
- * scoped listener subscribing here sees every change, not just its own
- * scope's.
+ * A tool was registered or unregistered, a scoped restriction changed, or
+ * a model-facing name mapping changed (the available tool set changed —
+ * possibly for one scope only). An UNFILTERED registry-subject
+ * notification, deliberately not scope-filtered dispatch: a global change
+ * concerns every agent's next assembly, so a scoped listener subscribing
+ * here sees every change, not just its own scope's.
  * @mode emit
  */
 'tools/change'(): void
