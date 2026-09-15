@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import * as yaml from 'js-yaml'
 import { describe, expect, it } from 'vitest'
+import { isForkOwnedDocumentation } from '../fork-owned-docs.ts'
 import {
   isTranslationPairingManifestExcluded,
   parseTranslationPairingManifest,
@@ -84,6 +85,16 @@ describe('fork CI runner selection', () => {
     expect(workflowJob('ci-fork.yml', 'snapshot')['runs-on']).toBe('ubuntu-24.04')
     expect(workflowJob('ci-fork.yml', 'fork-checks-passed')['runs-on']).toBe('ubuntu-latest')
   })
+
+  it('builds the native host addon before the headless snapshot smoke', () => {
+    const steps = workflowJob('ci-fork.yml', 'snapshot').steps
+    expect(Array.isArray(steps)).toBe(true)
+    const commands = (steps as Array<Record<string, unknown>>).map(step => String(step.run ?? ''))
+    const native = commands.findIndex(run => run.includes('build:native-system'))
+    const host = commands.findIndex(run => run.includes('build:lib:host'))
+    expect(native).toBeGreaterThanOrEqual(0)
+    expect(host).toBeGreaterThan(native)
+  })
 })
 
 describe('fork documentation pairing exclusions', () => {
@@ -97,12 +108,19 @@ describe('fork documentation pairing exclusions', () => {
     expect(isTranslationPairingManifestExcluded('docs/upstream-sync.md', manifest)).toBe(true)
     expect(isTranslationPairingManifestExcluded('docs/testing.md', manifest)).toBe(false)
     expect(isTranslationPairingManifestExcluded('docs/i18n/README.md', manifest)).toBe(false)
-    for (const file of ['scripts/verify-md-wrap.ts', 'scripts/verify-md-links.ts']) {
+    expect(isForkOwnedDocumentation('docs/plans/general-agent-harness.md')).toBe(true)
+    expect(isForkOwnedDocumentation('docs/notes/phase-0-reference-inspection.md')).toBe(true)
+    expect(isForkOwnedDocumentation('docs/ci/fork-ci.md')).toBe(true)
+    expect(isForkOwnedDocumentation('docs/upstream-sync.md')).toBe(true)
+    expect(isForkOwnedDocumentation('docs/testing.md')).toBe(false)
+    for (const file of [
+      'scripts/verify-md-wrap.ts',
+      'scripts/verify-md-links.ts',
+      'scripts/verify-mermaid.ts',
+    ]) {
       const source = readFileSync(resolve(root, file), 'utf8')
-      expect(source).toContain("relativePath.startsWith('docs/plans/')")
-      expect(source).toContain("relativePath.startsWith('docs/notes/')")
-      expect(source).toContain("relativePath.startsWith('docs/ci/')")
-      expect(source).toContain("relativePath === 'docs/upstream-sync.md'")
+      expect(source).toContain("from './fork-owned-docs.ts'")
+      expect(source).toContain('isForkOwnedDocumentation')
     }
   })
 })

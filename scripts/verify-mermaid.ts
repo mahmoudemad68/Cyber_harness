@@ -1,7 +1,7 @@
 /**
  * Parse every repo-authored Mermaid fence with Mermaid itself, catching syntax that link and fence
- * checks cannot. Scope intentionally matches the Markdown link gate, including standing docs,
- * package/example docs, and agent skills. Run with `tsx scripts/verify-mermaid.ts`.
+ * checks cannot. Scope matches the Markdown link gate (standing docs, package/example docs, and
+ * agent skills) and skips this fork's English-only planning notes. Run with `tsx scripts/verify-mermaid.ts`.
  */
 
 import { globSync, readFileSync, realpathSync } from 'node:fs'
@@ -11,6 +11,7 @@ import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
 import { JSDOM } from 'jsdom'
 import type { Nodes } from 'mdast'
+import { isForkOwnedDocumentation } from './fork-owned-docs.ts'
 import { isArchivedAgentNotePath } from './repo-files.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -65,7 +66,7 @@ const seen = new Set<string>()
 let checkedFiles = 0
 for (const pattern of PATTERNS) {
   for (const match of globSync(pattern, { cwd: root })) {
-    if (isArchivedAgentNotePath(match)) continue
+    if (isArchivedAgentNotePath(match) || isForkOwnedDocumentation(match)) continue
     const real = realpathSync(resolve(root, match))
     if (seen.has(real)) continue
     seen.add(real)

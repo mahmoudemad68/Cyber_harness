@@ -24,7 +24,7 @@ install/typecheck/lint/unit/snapshot/pairing regressions.
 | `fork checks passed` | Fork CI / `fork-checks-passed` | Deterministic aggregate over the rows below |
 | `typecheck lint pairing` | Fork CI / `static` | Frozen lockfile install, `pnpm run typecheck`, `pnpm run lint`, `pnpm run verify-translation-pairing`, `pnpm run verify-package-invariants` |
 | `unit tests` | Fork CI / `unit` | `pnpm run test` after isolating `/workspace` |
-| `headless snapshot smoke` | Fork CI / `snapshot` | Keyless recorded-session replay through `dsh --profile headless` |
+| `headless snapshot smoke` | Fork CI / `snapshot` | `build:native-system` then `build:lib:host`, then keyless recorded-session replay through `dsh --profile headless` |
 
 Recommended additional required checks that already run on GitHub-hosted
 runners without this overlay:
@@ -144,6 +144,9 @@ without rewriting workflows from scratch.
    `runs-on` clause on seven enterprise/Windows jobs; reduce fork-only
    concurrency; isolate `/workspace` on Linux coverage.
 2. **`.github/workflows/ci-fork.yml`** — new overlay; absent upstream.
+   The snapshot job runs `pnpm run build:native-system` then
+   `pnpm run build:lib:host` because headless replay loads
+   `native/system/packages/linux-x64/bin/glibc/system.node`.
 3. **`.github/workflows/e2e.yml`** — empty live-API key SKIPPED inside the
    preflight script on this fork (`GITHUB_REPOSITORY`). Do not put `secrets`
    in `if:` (GitHub rejects that named-value and aborts the workflow graph).
@@ -160,10 +163,12 @@ without rewriting workflows from scratch.
    `if` stays undefined (upstream unit test pin).
 7. **`scripts/translation-pairing.manifest.json`** — exclude this
    project's documentation paths listed above.
-8. **`scripts/verify-md-wrap.ts`** and **`scripts/verify-md-links.ts`** —
-   skip the same project-owned paths so DeepSeek's wrap and link gates still
-   cover DeepSeek docs without reformatting this project's planning notes or
-   treating planned Phase 1+ package paths as missing files.
+8. **`scripts/fork-owned-docs.ts`**, consumed by **`scripts/verify-md-wrap.ts`**,
+   **`scripts/verify-md-links.ts`**, and **`scripts/verify-mermaid.ts`** —
+   skip the same project-owned paths so DeepSeek's wrap, link, and mermaid
+   gates still cover DeepSeek docs without reformatting this project's
+   planning notes, treating planned Phase 1+ package paths as missing files,
+   or failing on roadmap sequence diagrams that Mermaid cannot parse.
 9. **`scripts/ci-isolate-workspace-fixture.sh`** and
    **`scripts/tests/fork-ci.spec.ts`** — fork-only helpers/tests.
 
@@ -178,6 +183,6 @@ without rewriting workflows from scratch.
    Windows jobs, python-runtime, issue-lifecycle token step, e2e
    bubblewrap, POSIX live-API `exit 1`), restore the pin and move fork
    behavior to an extra `&&` clause or overlay workflow.
-4. Re-run `pnpm exec vitest run scripts/ci-workflow.spec.ts scripts/tests/ci-master-platforms.spec.ts scripts/preview-workflow.spec.ts scripts/tests/fork-ci.spec.ts`. Keep the project-owned skips in `scripts/verify-md-wrap.ts` and `scripts/verify-md-links.ts` if those files are regenerated.
+4. Re-run `pnpm exec vitest run scripts/ci-workflow.spec.ts scripts/tests/ci-master-platforms.spec.ts scripts/preview-workflow.spec.ts scripts/tests/fork-ci.spec.ts`. Keep `scripts/fork-owned-docs.ts` wired into wrap, link, and mermaid gates if those files are regenerated.
 5. Keep `ci-fork.yml` as the required aggregate even if upstream
    `all checks passed` becomes usable here.

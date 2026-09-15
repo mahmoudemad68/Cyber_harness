@@ -9,16 +9,9 @@
 import { readFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 import type { Nodes } from 'mdast'
+import { isForkOwnedDocumentation } from './fork-owned-docs.ts'
 import { parseMarkdown, visitMarkdown } from './markdown.ts'
 import { isArchivedAgentNotePath, uniqueRepoFiles } from './repo-files.ts'
-
-/** English-only project notes for mahmoudemad68/Cyber_harness. See docs/ci/fork-ci.md. */
-function isForkOwnedDocumentation(relativePath: string): boolean {
-  return relativePath === 'docs/upstream-sync.md'
-    || relativePath.startsWith('docs/plans/')
-    || relativePath.startsWith('docs/notes/')
-    || relativePath.startsWith('docs/ci/')
-}
 
 const root = resolve(import.meta.dirname, '..')
 

@@ -434,6 +434,7 @@ These paths are this project's, not DeepSeek Harness:
 - `docs/ci/fork-ci.md`
 - `.github/workflows/ci-fork.yml`
 - `scripts/ci-isolate-workspace-fixture.sh`
+- `scripts/fork-owned-docs.ts`
 - `scripts/tests/fork-ci.spec.ts`
 
 No Cybersecurity domain package, policy plugin, tool-surface code, or other
