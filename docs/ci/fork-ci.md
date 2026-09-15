@@ -144,15 +144,17 @@ without rewriting workflows from scratch.
    `runs-on` clause on seven enterprise/Windows jobs; reduce fork-only
    concurrency; isolate `/workspace` on Linux coverage.
 2. **`.github/workflows/ci-fork.yml`** — new overlay; absent upstream.
-3. **`.github/workflows/e2e.yml`** — job `if` also requires the live-API
-   secret on this fork.
+3. **`.github/workflows/e2e.yml`** — empty live-API key SKIPPED inside the
+   preflight script on this fork (`GITHUB_REPOSITORY`). Do not put `secrets`
+   in `if:` (GitHub rejects that named-value and aborts the workflow graph).
+   `exit 1` remains for DeepSeek.
 4. **`.github/workflows/build-exe-for-python-sdk.yml`** — live-API
    preflight skips this fork when the key is empty inside the step script
    (`GITHUB_REPOSITORY`); reusable workflows cannot use `secrets` in `if`.
    `exit 1` remains in the POSIX script for DeepSeek.
-5. **`.github/workflows/build-preview-cloudflare.yml`** — upload/verify/comment
-   skip on this fork when `CLOUDFLARE_API_TOKEN` is empty; `pnpm run build`
-   still runs.
+5. **`.github/workflows/build-preview-cloudflare.yml`** — detect credentials
+   in a step (`env` + `GITHUB_OUTPUT`); upload/verify/comment skip when
+   unavailable. `pnpm run build` still runs. Do not put `secrets` in `if:`.
 6. **`.github/workflows/issue-policy.yml`** / **`issue-lifecycle.yml`** —
    empty Issue App id is SKIPPED rather than a PR failure. Lifecycle job
    `if` stays undefined (upstream unit test pin).

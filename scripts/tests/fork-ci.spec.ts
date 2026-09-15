@@ -110,11 +110,11 @@ describe('fork documentation pairing exclusions', () => {
 describe('optional secret-dependent fork skips', () => {
   it('keeps the DeepSeek e2e fail-loud path except on this fork without the key', () => {
     const e2e = workflowJob('e2e.yml', 'e2e')
-    expect(String(e2e.if)).toContain("github.repository != 'mahmoudemad68/Cyber_harness'")
-    expect(String(e2e.if)).toContain('secrets.DEEPSEEK_API_KEY_EXTERNAL')
+    expect(String(e2e.if)).not.toContain('secrets.')
     const preflight = (e2e.steps as Array<Record<string, unknown>>)
       .find(step => step.name === 'Preflight (require DEEPSEEK_API_KEY)')
     expect(String(preflight?.run)).toContain('exit 1')
+    expect(String(preflight?.run)).toContain('mahmoudemad68/Cyber_harness')
   })
 
   it('keeps installed-wheel live-API fail-loud text while skipping this fork without the key', () => {
