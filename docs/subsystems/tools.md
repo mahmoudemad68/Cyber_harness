@@ -169,7 +169,7 @@ interface ToolRestriction {
 
 ## `ModelToolSurface` — scoped model-facing names
 
-`ctx.tools.registerSurface(surface)` declares one mapping for the calling agent or preset scope. Identity (no declaration) is the default: exposed names equal registered names. `project` may hide a tool with `undefined` and may replace name and description; it must not rewrite parameters. Duplicate exposed names, an empty exposed name, and exposing a non-transport tool as `run_code` fail when the registry projects. `assemble` snapshots the mapping for that scope; reverse resolution, `schemas`, SDK bindings, and concurrency classification use the snapshot until the next assemble. Direct execute without assemble projects the live visible set. Hidden or restricted tools absent from the snapshot cannot be reached through an alias. `toolOrder` still matches registered names; the assemble waterfall rewrites owned tools afterward. Dispatch, policy, restrictions, and concurrency keep the registered name. `ToolExecution.requestedName` is set only when it differs.
+`ctx.tools.registerSurface(surface)` declares one mapping for the calling agent or preset scope. Identity (no declaration) is the default: exposed names equal registered names. `project` may hide a tool with `undefined` and may replace name and description; it must not rewrite parameters. Duplicate exposed names, an empty exposed name, and exposing a non-transport tool as `run_code` fail when the registry projects. `assemble` snapshots the mapping for that scope; reverse resolution, nested SDK bindings, and concurrency classification use the snapshot until the next assemble. Public `schemas()` always projects the live visible set. Direct execute without assemble projects the live visible set. Hidden or restricted tools absent from the snapshot cannot be reached through an alias. `toolOrder` still matches registered names; the assemble waterfall rewrites owned tools afterward. Dispatch, policy, restrictions, and concurrency keep the registered name. `ToolExecution.requestedName` is set only when it differs.
 
 ```ts type-equiv
 /** Model-facing name and optional description for one canonical tool schema. */
@@ -594,14 +594,15 @@ guard(guard: ToolGuard): () => void
 get(name: string, scope?: ScopeKey): ToolDefinition | undefined
 
 /**
- * Project visible definitions onto the allowlisted model-facing schema fields,
- * excluding execution and presentation callbacks. A scoped
+ * Project the live visible set onto the allowlisted model-facing schema
+ * fields, excluding execution and presentation callbacks. A scoped
  * {@link ModelToolSurface} rewrites only name and description; parameters
- * stay the registered schema. The identity mapping is the default. After
- * assemble for this scope, this is the snapshot from that request until the
- * next assemble; without assemble, it projects the live visible set.
+ * stay the registered schema. The identity mapping is the default. A tool
+ * registered or unregistered after assemble appears or disappears here
+ * immediately. Reverse resolution, nested SDK bindings, and assembled
+ * request tools use the assemble snapshot instead.
  * @param scope - the viewing scope (the agent); omitted = the global view.
- * @returns one deep-cloned schema per tool the model may see.
+ * @returns one deep-cloned schema per currently visible tool.
  */
 schemas(scope?: ScopeKey): ToolSchema[]
 

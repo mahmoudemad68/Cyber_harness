@@ -686,8 +686,9 @@ interface CanonicalProjection {
 
 /**
  * Model-facing mapping captured for one `assemble` of a scope. Reverse
- * resolution, `schemas`, SDK bindings, and concurrency classification read
- * this snapshot until the next assemble for the same scope.
+ * resolution, nested SDK bindings, concurrency classification, and assembled
+ * request tools read this snapshot until the next assemble for the same
+ * scope. Public {@link ToolRuntime.schemas} does not.
  */
 interface FrozenToolProjection {
   /** Declared surface id at capture; omitted for the identity mapping. */
@@ -945,7 +946,7 @@ export class ToolRuntime extends Service {
         const render = SDK_RENDERERS[runtime.language]
         /* v8 ignore next -- requireCodeRuntime rejects an unknown language before this runs. */
         if (render === undefined) throw new Error(`dsh-tools: no SDK renderer for ${runtime.language}`)
-        return render(this.sdkSchemas(context.scope))
+        return render(this.requestSdkSchemas(context.scope))
       },
     }
   }
@@ -1069,15 +1070,25 @@ export class ToolRuntime extends Service {
   }
 
   /**
-   * Rows for reverse resolution and model-facing enumeration. After assemble,
-   * this is the snapshot from that request; without assemble, the live
-   * projection.
+   * Rows for reverse resolution and request-bound SDK/PTC enumeration. After
+   * assemble, this is the snapshot from that request; without assemble, the
+   * live projection.
    * @param scope - the viewing scope (the agent); omitted = the global view.
-   * @returns one row per tool the model may see.
+   * @returns one row per tool the in-flight request may name.
    */
   private projectionRows(scope?: ScopeKey): readonly CanonicalProjection[] {
     return this.projectionFreeze.get(this.freezeKey(scope))?.rows
       ?? this.projectDefinitions(scope)
+  }
+
+  /**
+   * Clone the last assemble snapshot's model-facing schemas for this scope.
+   * Nested `run_code` bindings use this instead of public {@link schemas}.
+   * @param scope - the viewing scope (the agent); omitted = the global view.
+   * @returns one deep-cloned schema per tool the in-flight request may name.
+   */
+  private requestSchemas(scope?: ScopeKey): ToolSchema[] {
+    return this.projectionRows(scope).map(row => this.cloneProjectedSchema(row.schema))
   }
 
   /**
@@ -1155,6 +1166,7 @@ export class ToolRuntime extends Service {
       peekRuntime: () => this.ctx.get('codeRuntime'),
       maxParallel: this.maxParallelSubCalls,
       shapeDispatchLog: dispatch => this.shapeDispatchLog(dispatch),
+      requestSchemas: scope => this.requestSchemas(scope),
     })
     return this.ptcTransport
   }
@@ -1472,6 +1484,7 @@ export class ToolRuntime extends Service {
    * it bound) may call any exposed visible tool. Reverse resolution maps
    * the model-requested name onto the canonical registered name before
    * lookup, using the last assemble snapshot for this scope when one exists.
+   * A freeze row whose canonical tool is no longer registered is absent.
    * Denial surfaces as `UNKNOWN_TOOL` through the executor, matching
    * an absent definition.
    * @param name - the model-requested or SDK-binding name.
@@ -1483,10 +1496,7 @@ export class ToolRuntime extends Service {
     const canonical = this.canonicalNameFor(name, scope)
     if (canonical === undefined) return undefined
     const tool = this.get(canonical, scope)
-    /* v8 ignore next 3 -- projectDefinitions enumerates the same view get() reads */
-    if (tool === undefined) {
-      return undefined
-    }
+    if (tool === undefined) return undefined
     if (this.collapses(canonical, scope, nested)) return undefined
     return tool
   }
@@ -1504,21 +1514,22 @@ export class ToolRuntime extends Service {
   }
 
   /**
-   * Project visible definitions onto the allowlisted model-facing schema fields,
-   * excluding execution and presentation callbacks. A scoped
+   * Project the live visible set onto the allowlisted model-facing schema
+   * fields, excluding execution and presentation callbacks. A scoped
    * {@link ModelToolSurface} rewrites only name and description; parameters
-   * stay the registered schema. The identity mapping is the default. After
-   * assemble for this scope, this is the snapshot from that request until the
-   * next assemble; without assemble, it projects the live visible set.
+   * stay the registered schema. The identity mapping is the default. A tool
+   * registered or unregistered after assemble appears or disappears here
+   * immediately. Reverse resolution, nested SDK bindings, and assembled
+   * request tools use the assemble snapshot instead.
    * @param scope - the viewing scope (the agent); omitted = the global view.
-   * @returns one deep-cloned schema per tool the model may see.
+   * @returns one deep-cloned schema per currently visible tool.
    */
   schemas(scope?: ScopeKey): ToolSchema[] {
-    return this.projectionRows(scope).map(row => this.cloneProjectedSchema(row.schema))
+    return this.projectDefinitions(scope).map(row => this.cloneProjectedSchema(row.schema))
   }
 
-  /** Project visible callable tools onto the generated PTC mode SDK contract. */
-  private sdkSchemas(scope?: ScopeKey): ToolSdkSchema[] {
+  /** Project the assemble snapshot onto the generated PTC mode SDK contract. */
+  private requestSdkSchemas(scope?: ScopeKey): ToolSdkSchema[] {
     return this.projectionRows(scope).flatMap((row): ToolSdkSchema[] => {
       if (row.canonicalName === RUN_CODE_NAME) return []
       const definition = this.get(row.canonicalName, scope)

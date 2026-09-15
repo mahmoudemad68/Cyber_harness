@@ -2047,4 +2047,36 @@ describe('ModelToolSurface with native/ptc/both', () => {
     expect(later).toMatchObject({ isError: false })
     expect(calls).toEqual([{ value: 'frozen-sdk' }, { value: 'live-sdk' }])
   })
+
+  it("mode 'ptc' keeps frozen SDK bindings when a tool registers after assemble", async () => {
+    const { ctx, systemPrompt, runtime } = await setup({ mode: 'ptc' })
+    const echoCalls = registerEcho(ctx)
+    const { agent } = await mintAgentScope(ctx)
+    Object.assign(agent, {
+      session: {
+        append: () => {},
+      },
+    })
+    await systemPrompt.assemble({ scope: agent })
+    const extraCalls = registerEcho(ctx, 'extra')
+    expect(ctx.tools.schemas(agent).map(schema => schema.name).sort()).toEqual(['echo', 'extra', RUN_CODE_NAME])
+    runtime.behavior = async (request) => {
+      expect(Object.keys(request.bindings[0]!.functions).sort()).toEqual(['echo'])
+      expect(request.bindings[0]!.functions.extra).toBeUndefined()
+      return { logs: [], value: await request.bindings[0]!.functions.echo!({ value: 'frozen-sdk' }) }
+    }
+    const nested = await runCode(ctx, 'program', { agent })
+    expect(nested).toMatchObject({ isError: false })
+    expect(echoCalls).toEqual([{ value: 'frozen-sdk' }])
+    expect(extraCalls).toEqual([])
+
+    await systemPrompt.assemble({ scope: agent })
+    runtime.behavior = async (request) => {
+      expect(Object.keys(request.bindings[0]!.functions).sort()).toEqual(['echo', 'extra'])
+      return { logs: [], value: await request.bindings[0]!.functions.extra!({ value: 'next-sdk' }) }
+    }
+    const later = await runCode(ctx, 'program', { agent })
+    expect(later).toMatchObject({ isError: false })
+    expect(extraCalls).toEqual([{ value: 'next-sdk' }])
+  })
 })

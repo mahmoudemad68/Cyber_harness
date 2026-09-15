@@ -8,12 +8,12 @@
 
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolCallId, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { CodeBindingFunction, CodeRunResult, CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import { snapshotJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import { defineTool, parameterSchemaSpecToJsonSchema } from './schema.ts'
 import { TOOL_RUNTIME_SCHEDULER } from './index.ts'
-import type { PtcDispatchLog, ToolDefinition, ToolExecutionResult, ToolRuntime, ToolRunContext } from './index.ts'
+import type { PtcDispatchLog, ToolDefinition, ToolExecution, ToolExecutionResult, ToolRuntime, ToolRunContext } from './index.ts'
 import type {} from './types.ts'
 
 /** The model-facing name of the PTC mode tool. */
@@ -277,6 +277,13 @@ export interface RunCodeBridgeOptions {
   maxParallel: number
   /** Runs the contained `tools/ptc-dispatch-log` waterfall over one settled sub-dispatch (the registry's private invoker). */
   shapeDispatchLog: (dispatch: PtcDispatchLog) => Promise<ContentBlock[]>
+  /**
+   * Model-facing schemas from the last assemble snapshot for this scope, or
+   * the live projection when that scope has no assemble yet. Nested SDK
+   * bindings must not read public `schemas()`, which always follows the live
+   * registry.
+   */
+  requestSchemas: (scope?: ToolExecution['agent']) => ToolSchema[]
 }
 
 /**
@@ -291,7 +298,7 @@ export interface RunCodeBridgeOptions {
  * @returns the registry-ready definition.
  */
 export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeOptions): ToolDefinition {
-  const { requireRuntime, peekRuntime, maxParallel, shapeDispatchLog } = options
+  const { requireRuntime, peekRuntime, maxParallel, shapeDispatchLog, requestSchemas } = options
   const definition = defineTool({
     name: RUN_CODE_NAME,
     // The description and `code` parameter description are placeholders here:
@@ -608,7 +615,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
       // restricted globals vanish) — the same mapping the SDK section declared,
       // so a program can bind exactly what its prompt promised; sub-dispatch
       // re-resolves per call through that snapshot (exec.agent threads down).
-      for (const schema of registry.schemas(exec.agent)) {
+      for (const schema of requestSchemas(exec.agent)) {
         if (schema.name === RUN_CODE_NAME) continue
         Object.defineProperty(functions, schema.name, { enumerable: true, value: binding(schema.name) })
       }

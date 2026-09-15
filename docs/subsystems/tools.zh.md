@@ -169,7 +169,7 @@ interface ToolRestriction {
 
 ## `ModelToolSurface` — 作用域内面向模型的名称
 
-`ctx.tools.registerSurface(surface)` 为调用方 agent 或 preset 作用域声明一次映射。默认是恒等（无声明）：对外名称等于注册名称。`project` 可用 `undefined` 隐藏工具，也可替换名称和描述；它不得改写 parameters。重复的对外名称、空对外名称、以及把非传输工具公开为 `run_code`，都在注册表投影时失败。`assemble` 为该作用域快照这次映射；反向解析、`schemas`、SDK 绑定与并发分类使用该快照，直到下一次 assemble。未经 assemble 的直接 execute 按当时的可见集合投影。快照中不存在的隐藏或被限制工具不能通过别名到达。`toolOrder` 仍匹配注册名称；assemble waterfall 随后改写本注册表拥有的工具。分派、策略、限制与并发继续使用注册名称。仅当它与注册名称不同时才设置 `ToolExecution.requestedName`。
+`ctx.tools.registerSurface(surface)` 为调用方 agent 或 preset 作用域声明一次映射。默认是恒等（无声明）：对外名称等于注册名称。`project` 可用 `undefined` 隐藏工具，也可替换名称和描述；它不得改写 parameters。重复的对外名称、空对外名称、以及把非传输工具公开为 `run_code`，都在注册表投影时失败。`assemble` 为该作用域快照这次映射；反向解析、嵌套 SDK 绑定与并发分类使用该快照，直到下一次 assemble。公开的 `schemas()` 始终按当时的可见集合投影。未经 assemble 的直接 execute 按当时的可见集合投影。快照中不存在的隐藏或被限制工具不能通过别名到达。`toolOrder` 仍匹配注册名称；assemble waterfall 随后改写本注册表拥有的工具。分派、策略、限制与并发继续使用注册名称。仅当它与注册名称不同时才设置 `ToolExecution.requestedName`。
 
 ```ts type-equiv
 /** Model-facing name and optional description for one canonical tool schema. */
@@ -594,14 +594,15 @@ guard(guard: ToolGuard): () => void
 get(name: string, scope?: ScopeKey): ToolDefinition | undefined
 
 /**
- * Project visible definitions onto the allowlisted model-facing schema fields,
- * excluding execution and presentation callbacks. A scoped
+ * Project the live visible set onto the allowlisted model-facing schema
+ * fields, excluding execution and presentation callbacks. A scoped
  * {@link ModelToolSurface} rewrites only name and description; parameters
- * stay the registered schema. The identity mapping is the default. After
- * assemble for this scope, this is the snapshot from that request until the
- * next assemble; without assemble, it projects the live visible set.
+ * stay the registered schema. The identity mapping is the default. A tool
+ * registered or unregistered after assemble appears or disappears here
+ * immediately. Reverse resolution, nested SDK bindings, and assembled
+ * request tools use the assemble snapshot instead.
  * @param scope - the viewing scope (the agent); omitted = the global view.
- * @returns one deep-cloned schema per tool the model may see.
+ * @returns one deep-cloned schema per currently visible tool.
  */
 schemas(scope?: ScopeKey): ToolSchema[]
 

@@ -474,7 +474,7 @@ describe('ModelToolSurface request-bound projection freeze', () => {
     const lift = scope.ctx.tools.registerSurface(aliasSurface({ echo: 'ping' }))
     expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(tool => tool.name)).toEqual(['ping'])
     lift()
-    expect(ctx.tools.schemas(key).map(tool => tool.name)).toEqual(['ping'])
+    expect(ctx.tools.schemas(key).map(tool => tool.name)).toEqual(['echo'])
 
     const names: string[] = []
     ctx.on('tools/pre-execute', (exec: ToolExecution, next: () => Promise<PreToolDecision>) => {
@@ -584,7 +584,6 @@ describe('ModelToolSurface request-bound projection freeze', () => {
     })
     expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(tool => tool.name)).toEqual(['ping1'])
     expect(projectCalls).toBe(1)
-    expect(ctx.tools.schemas(key).map(tool => tool.name)).toEqual(['ping1'])
     const first = await run(ctx, 'ping1', { text: 'one' }, key)
     expect(first.result.isError).toBe(false)
     expect(first.exec?.name).toBe('echo')
@@ -600,6 +599,37 @@ describe('ModelToolSurface request-bound projection freeze', () => {
     expect(second.exec?.requestedName).toBe('ping2')
     const stale = await run(ctx, 'ping1', { text: 'stale' }, key)
     expect(stale.result.error?.info?.code).toBe('UNKNOWN_TOOL')
+  })
+
+  it('omits a tool from public schemas() as soon as it unregisters, and a frozen alias cannot execute it', async () => {
+    const ctx = await mount()
+    const liftTool = ctx.tools.register(echo())
+    const { scope, key } = await mintAgentScope(ctx)
+    scope.ctx.tools.registerSurface(aliasSurface({ echo: 'ping' }))
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(tool => tool.name)).toEqual(['ping'])
+    liftTool()
+    expect(ctx.tools.schemas(key).map(tool => tool.name)).toEqual([])
+    const stale = await run(ctx, 'ping', { text: 'gone' }, key)
+    expect(stale.result.isError).toBe(true)
+    expect(stale.result.error?.info?.code).toBe('UNKNOWN_TOOL')
+  })
+
+  it('includes a tool in public schemas() as soon as it registers, before the next assemble can execute it', async () => {
+    const ctx = await mount()
+    ctx.tools.register(echo())
+    const { key } = await mintAgentScope(ctx)
+    await ctx.systemPrompt.assemble({ scope: key })
+    expect(ctx.tools.schemas(key).map(tool => tool.name)).toEqual(['echo'])
+    ctx.tools.register(echo('extra'))
+    expect(ctx.tools.schemas(key).map(tool => tool.name).sort()).toEqual(['echo', 'extra'])
+    const tooSoon = await run(ctx, 'extra', { text: 'early' }, key)
+    expect(tooSoon.result.isError).toBe(true)
+    expect(tooSoon.result.error?.info?.code).toBe('UNKNOWN_TOOL')
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(tool => tool.name).sort())
+      .toEqual(['echo', 'extra'])
+    const later = await run(ctx, 'extra', { text: 'ok' }, key)
+    expect(later.result.isError).toBe(false)
+    expect(later.exec?.name).toBe('extra')
   })
 
   it('reads the global assemble freeze when execute omits an agent', async () => {

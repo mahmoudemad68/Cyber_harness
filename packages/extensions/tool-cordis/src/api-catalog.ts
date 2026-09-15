@@ -2654,9 +2654,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'schemas(scope?: ScopeKey): ToolSchema[]',
-        description: 'Project visible definitions onto the allowlisted model-facing schema fields, excluding execution and presentation callbacks. A scoped ModelToolSurface rewrites only name and description; parameters stay the registered schema. The identity mapping is the default. After assemble for this scope, this is the snapshot from that request until the next assemble; without assemble, it projects the live visible set.',
+        description: 'Project the live visible set onto the allowlisted model-facing schema fields, excluding execution and presentation callbacks. A scoped ModelToolSurface rewrites only name and description; parameters stay the registered schema. The identity mapping is the default. A tool registered or unregistered after assemble appears or disappears here immediately. Reverse resolution, nested SDK bindings, and assembled request tools use the assemble snapshot instead.',
         parameters: [{ name: 'scope', description: 'the viewing scope (the agent); omitted = the global view.' }],
-        returns: 'one deep-cloned schema per tool the model may see.',
+        returns: 'one deep-cloned schema per currently visible tool.',
       },
       {
         signature: 'executionMode(exec: ToolExecutionInput): ToolExecutionMode',

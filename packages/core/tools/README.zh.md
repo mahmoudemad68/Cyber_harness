@@ -82,7 +82,7 @@ ctx.tools.register(defineTool({
 
 ### 映射面向模型的名称
 
-`ctx.tools.registerSurface(surface)` 声明从注册工具名到模型所见名称的作用域映射。默认是恒等（无声明），现有行为保持不变。`project` 可以隐藏工具，或替换其名称和描述；parameters 保持为注册 schema。重复的对外名称会失败。`assemble` 为该作用域快照这次映射；反向解析使用该快照，直到下一次 assemble。未经 assemble 的直接 execute 按当时的可见集合投影。不同的参数 schema 应做成单独的类型化适配工具，而不是改写别名参数。
+`ctx.tools.registerSurface(surface)` 声明从注册工具名到模型所见名称的作用域映射。默认是恒等（无声明），现有行为保持不变。`project` 可以隐藏工具，或替换其名称和描述；parameters 保持为注册 schema。重复的对外名称会失败。`assemble` 为该作用域快照这次映射；反向解析使用该快照，直到下一次 assemble。公开的 `schemas()` 始终按当时的可见集合投影。未经 assemble 的直接 execute 按当时的可见集合投影。不同的参数 schema 应做成单独的类型化适配工具，而不是改写别名参数。
 
 ### 对调用实施策略
 

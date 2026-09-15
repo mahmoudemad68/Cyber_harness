@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-15-model-tool-surface.md
-2026-09-15-model-tool-surface.md: 7b3273368f2e5ebda9d929c0554c96302db099cc
-2026-09-15-model-tool-surface.zh.md: f44c80bf38f45f8fb69b4325eab1135864d068cf
+2026-09-15-model-tool-surface.md: 714a74b0553c37460704cccbab98afd56095e6a3
+2026-09-15-model-tool-surface.zh.md: 0d63226367e4776ff5833e09ab4a95cfc58c0da1
