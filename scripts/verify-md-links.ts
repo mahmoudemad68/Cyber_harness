@@ -13,6 +13,14 @@ import type { Nodes } from 'mdast'
 import { markdownHeadingLines, parseMarkdown, visitMarkdown } from './markdown.ts'
 import { isArchivedAgentNotePath, uniqueRepoFiles } from './repo-files.ts'
 
+/** English-only project notes for mahmoudemad68/Cyber_harness. See docs/ci/fork-ci.md. */
+function isForkOwnedDocumentation(relativePath: string): boolean {
+  return relativePath === 'docs/upstream-sync.md'
+    || relativePath.startsWith('docs/plans/')
+    || relativePath.startsWith('docs/notes/')
+    || relativePath.startsWith('docs/ci/')
+}
+
 const root = resolve(import.meta.dirname, '..')
 
 /** Repo-authored Markdown checked for relative links. */
@@ -196,7 +204,11 @@ export function findViolations(
 
 if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
   // Archived notes remain valid link targets, but their historical outbound links are frozen.
-  const files = uniqueRepoFiles(root, PATTERNS, isArchivedAgentNotePath)
+  const files = uniqueRepoFiles(
+    root,
+    PATTERNS,
+    path => isArchivedAgentNotePath(path) || isForkOwnedDocumentation(path),
+  )
   const anchorsOf = anchorCache()
   const all = files.flatMap(file => findViolations(file.abs, anchorsOf))
   const checked = files.length

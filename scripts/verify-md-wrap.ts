@@ -12,6 +12,14 @@ import type { Nodes } from 'mdast'
 import { parseMarkdown, visitMarkdown } from './markdown.ts'
 import { isArchivedAgentNotePath, uniqueRepoFiles } from './repo-files.ts'
 
+/** English-only project notes for mahmoudemad68/Cyber_harness. See docs/ci/fork-ci.md. */
+function isForkOwnedDocumentation(relativePath: string): boolean {
+  return relativePath === 'docs/upstream-sync.md'
+    || relativePath.startsWith('docs/plans/')
+    || relativePath.startsWith('docs/notes/')
+    || relativePath.startsWith('docs/ci/')
+}
+
 const root = resolve(import.meta.dirname, '..')
 
 /** Files to check: doc-typecheck's scope, system-prompt expected outputs, and the AGENTS.md pair. */
@@ -70,7 +78,11 @@ function findViolations(absPath: string): Violation[] {
   return out
 }
 
-const files = uniqueRepoFiles(root, PATTERNS, isArchivedAgentNotePath)
+const files = uniqueRepoFiles(
+  root,
+  PATTERNS,
+  path => isArchivedAgentNotePath(path) || isForkOwnedDocumentation(path),
+)
 const all = files.flatMap(file => findViolations(file.abs))
 const checked = files.length
 
