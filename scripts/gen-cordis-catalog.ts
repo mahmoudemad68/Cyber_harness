@@ -566,6 +566,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ToolPresentationMode: 'tools.md',
   ToolRuntime: 'tools.md',
   ToolRestriction: 'tools.md',
+  ModelToolSurface: 'tools.md',
+  ModelToolSurfaceProjection: 'tools.md',
   ToolSchema: 'tools.md',
   SettingsNamespace: 'settings.md',
   SettingsNamespaceInput: 'settings.md',

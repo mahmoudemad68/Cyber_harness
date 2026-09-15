@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用 `dsh-tools` 可向模型公开类型化能力、校验调用、执行允许／拒绝／询问策略，并在普通工具失败时返回最终结果而不中止当前轮次。通过 `mode` 选择原生 Function Calling（函数调用）、[PTC mode](#ptc-mode) 或两者；单个 agent（智能体）可用 `presentAs` 覆盖默认值。工具作者使用 `defineTool` 声明类型化参数与输出、协作式超时、并行安全属性和可选 UI 展示。模型会看到每个获准工具声明的名称、描述与参数 schema；按 agent 设置的限制可缩小该可见集合。
+使用 `dsh-tools` 可向模型公开类型化能力、校验调用、执行允许／拒绝／询问策略，并在普通工具失败时返回最终结果而不中止当前轮次。通过 `mode` 选择原生 Function Calling（函数调用）、[PTC mode](#ptc-mode) 或两者；单个 agent（智能体）可用 `presentAs` 覆盖默认值。工具作者使用 `defineTool` 声明类型化参数与输出、协作式超时、并行安全属性和可选 UI 展示。模型会看到每个获准工具的名称、描述与参数 schema——默认是注册名称，除非作用域内的 `registerSurface` 做了映射；按 agent 设置的限制可缩小该可见集合。
 
 ## 目录
 
@@ -80,6 +80,10 @@ ctx.tools.register(defineTool({
 
 `ctx.tools.restrict(filter)` 对单个 agent 继承的全局工具应用允许或拒绝掩码；掩码取交集，作用域注册保持可见，限制在 dispose（资源释放）时解除。`ctx.tools.get(name, scope)` 按一个作用域的视角解析工具。使用 Host 本地展示转换器的消费方如需匹配实际执行的定义，会传入发起调用的 agent。`ctx.tools.schemas(scope)` 返回可见 schema（不含 `execute` 函数）。
 
+### 映射面向模型的名称
+
+`ctx.tools.registerSurface(surface)` 声明从注册工具名到模型所见名称的作用域映射。默认是恒等（无声明），现有行为保持不变。`project` 可以隐藏工具，或替换其名称和描述；parameters 保持为注册 schema。重复的对外名称会失败。`assemble` 为该作用域快照这次映射；反向解析使用该快照，直到下一次 assemble。公开的 `schemas()` 始终按当时的可见集合投影。未经 assemble 的直接 execute 按当时的可见集合投影。不同的参数 schema 应做成单独的类型化适配工具，而不是改写别名参数。
+
 ### 对调用实施策略
 
 `ctx.tools.guard(guard)` 在可扩展的 `tools/pre-execute` waterfall（瀑布式事件）之后注册单调同步守卫：返回的理由会拒绝调用，后续监听器无法把该拒绝重新变为允许。流水线事件给插件更多控制——`tools/pre-execute` 决定允许／拒绝／询问，`tools/execute` 为超时或重试包装分发，`tools/post-execute` 检查或替换结果，`tools/result` 观测冻结的最终结果。
@@ -129,7 +133,7 @@ ctx.tools.register(defineTool({
 <a id="extension-points"></a>
 ### 扩展点
 
-工具插件调用 `ctx.tools.register()`，其 schema 会自动流入提示词组装。`tools/pre-execute` 是可重排的允许／拒绝／询问门禁；`ctx.tools.guard()` 在其后添加单调的拥有方策略；`tools/execute` 为超时、重试或指标包装规范化后的规范分发；`tools/post-execute` 可以替换内容或值、通过反馈阻止，或附加有序上下文；`tools/result` 观测不可变的最终结果。MCP 服务器发现工具后，用服务器的 schema 调用 `ctx.tools.register()`。
+工具插件调用 `ctx.tools.register()`，其 schema 会自动流入提示词组装。`ctx.tools.registerSurface()` 为单个 agent 或 preset 作用域把注册名称映射为面向模型的名称。`tools/pre-execute` 是可重排的允许／拒绝／询问门禁；`ctx.tools.guard()` 在其后添加单调的拥有方策略；`tools/execute` 为超时、重试或指标包装规范化后的规范分发；`tools/post-execute` 可以替换内容或值、通过反馈阻止，或附加有序上下文；`tools/result` 观测不可变的最终结果。MCP 服务器发现工具后，用服务器的 schema 调用 `ctx.tools.register()`。
 
 </details>
 
@@ -145,6 +149,7 @@ ctx.tools.register(defineTool({
 - [工具执行流水线](../../../docs/tool-execution-pipeline.zh.md)——可视化流水线。
 - [添加工具实操手册](../../../docs/cookbook/adding-a-tool.zh.md)——分步骤的工具编写指南。
 - [协作式取消 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-19-cooperative-tool-cancellation.zh.md)——完整取消约定。
+- [面向模型的工具名称](../../../.agents/notes/implemented/architecture/2026-09-15-model-tool-surface.zh.md)——在现有注册表上的作用域 `registerSurface` 映射。
 - [core 分组地图](../README.zh.md)——core 各包如何组合。
 
 -----
@@ -156,7 +161,7 @@ ctx.tools.register(defineTool({
 
 #### 模型看到什么
 
-在普通模式下，模型会看到每个可见定义的确切名称、描述与 JSON Schema；已交付定义记录在生成的[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tools)中。agent 作用域的限制、遮蔽与扩展注册会改变该 agent 的最终工具集合。
+在普通模式下，模型会看到每个可见定义的确切名称、描述与 JSON Schema；已交付定义记录在生成的[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tools)中。agent 作用域的限制、遮蔽、扩展注册与 `registerSurface` 映射会改变该 agent 的最终工具集合。
 
 #### Token 影响
 

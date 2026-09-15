@@ -853,6 +853,16 @@
     },
     {
       "doc": "docs/subsystems/tools.md",
+      "symbol": "ModelToolSurfaceProjection",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/tools.md",
+      "symbol": "ModelToolSurface",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/tools.md",
       "symbol": "ToolFailure",
       "source": "packages/core/tools/src/index.ts"
     },

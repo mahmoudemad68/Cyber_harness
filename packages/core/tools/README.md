@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `dsh-tools` to expose typed capabilities to models, validate calls, enforce allow/deny/ask policy, and return finalized results without ending a turn on ordinary tool failures. Choose native Function Calling, [PTC mode](#ptc-mode), or both with `mode`; an agent can override the default through `presentAs`. Tool authors use `defineTool` to declare typed parameters and outputs, cooperative timeouts, parallel-safety, and optional UI presentation. Models see each permitted tool's declared name, description, and parameter schema; per-agent restrictions can narrow that visible set.
+Use `dsh-tools` to expose typed capabilities to models, validate calls, enforce allow/deny/ask policy, and return finalized results without ending a turn on ordinary tool failures. Choose native Function Calling, [PTC mode](#ptc-mode), or both with `mode`; an agent can override the default through `presentAs`. Tool authors use `defineTool` to declare typed parameters and outputs, cooperative timeouts, parallel-safety, and optional UI presentation. Models see each permitted tool's name, description, and parameter schema — the registered name unless a scoped `registerSurface` maps it; per-agent restrictions can narrow that visible set.
 
 ## Table of Contents
 
@@ -80,6 +80,10 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 `ctx.tools.restrict(filter)` applies an allow or deny mask to the global tools one agent inherits; masks intersect, scoped registrations stay visible, and the restriction lifts when disposed. `ctx.tools.get(name, scope)` resolves a tool as one scope sees it. A Host-local presenter consumer passes the calling agent when it must match the definition that executed. `ctx.tools.schemas(scope)` returns the visible schemas without the `execute` functions.
 
+### Map model-facing names
+
+`ctx.tools.registerSurface(surface)` declares a scoped mapping from registered tool names to the names the model sees. Identity (no declaration) is the default and leaves existing behavior unchanged. `project` may hide a tool or replace its name and description; parameters stay the registered schema. Duplicate exposed names fail. `assemble` snapshots the mapping for that scope; reverse resolution uses the snapshot until the next assemble. Public `schemas()` always projects the live visible set. Direct execute without assemble projects the live visible set. A different argument schema is a separate typed adapter tool, not an alias.
+
 ### Enforce policy on calls
 
 `ctx.tools.guard(guard)` registers a monotonic synchronous guard after the extensible `tools/pre-execute` waterfall: a returned reason denies the call, and no later listener can turn that denial back into permission. The pipeline's events give plugins more control — `tools/pre-execute` decides allow/deny/ask, `tools/execute` wraps dispatch for timeout or retry, `tools/post-execute` inspects or replaces the result, and `tools/result` observes the frozen final outcome.
@@ -129,7 +133,7 @@ New sub-calls use `<parent>:ptc:<n>` ids. Consumers treat these ids as opaque an
 <a id="extension-points"></a>
 ### Extension points
 
-Tool plugins call `ctx.tools.register()` and their schemas flow into prompt assembly automatically. `tools/pre-execute` is the reorderable allow/deny/ask gate; `ctx.tools.guard()` adds monotonic owner policy after it; `tools/execute` wraps normalized canonical dispatch for timeout, retry, or metrics; `tools/post-execute` may replace content or value, block with feedback, or attach ordered contexts; `tools/result` observes the immutable final outcome. MCP servers discover tools and register them with the server's schemas.
+Tool plugins call `ctx.tools.register()` and their schemas flow into prompt assembly automatically. `ctx.tools.registerSurface()` maps registered names to model-facing names for one agent or preset scope. `tools/pre-execute` is the reorderable allow/deny/ask gate; `ctx.tools.guard()` adds monotonic owner policy after it; `tools/execute` wraps normalized canonical dispatch for timeout, retry, or metrics; `tools/post-execute` may replace content or value, block with feedback, or attach ordered contexts; `tools/result` observes the immutable final outcome. MCP servers discover tools and register them with the server's schemas.
 
 </details>
 
@@ -145,6 +149,7 @@ The package-level contract is enough for most consumers; read these when you nee
 - [Tool execution pipeline](../../../docs/tool-execution-pipeline.md) — the pipeline visualized.
 - [Adding a tool cookbook](../../../docs/cookbook/adding-a-tool.md) — step-by-step tool authoring.
 - [Cooperative cancellation Agent Note](../../../.agents/notes/implemented/architecture/2026-07-19-cooperative-tool-cancellation.md) — the full cancellation contract.
+- [Model-facing tool names](../../../.agents/notes/implemented/architecture/2026-09-15-model-tool-surface.md) — scoped `registerSurface` mapping over the existing registry.
 - [Core group map](../README.md) — how the core packages compose.
 
 -----
@@ -156,7 +161,7 @@ The package-level contract is enough for most consumers; read these when you nee
 
 #### What the model sees
 
-In normal mode the model sees each visible definition's exact name, description, and JSON Schema; the shipped definitions are recorded in the generated [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tools). Agent-scoped restrictions, shadows, and extension registrations change that agent's end-tool set.
+In normal mode the model sees each visible definition's exact name, description, and JSON Schema; the shipped definitions are recorded in the generated [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tools). Agent-scoped restrictions, shadows, extension registrations, and `registerSurface` mappings change that agent's end-tool set.
 
 #### Token effect
 

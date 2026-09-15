@@ -287,6 +287,21 @@ describe('serializeRequest', () => {
     ])
   })
 
+  it('copies an exposed alias name and its parameters without rewriting them', () => {
+    const parameters = {
+      type: 'object',
+      properties: { text: { type: 'string' } },
+      required: ['text'],
+    }
+    const wire = serializeRequest(request({
+      messages: history,
+      tools: [{ name: 'ping', description: 'exposed ping', parameters }],
+    }))
+    expect(wire.tools).toEqual([
+      { type: 'function', function: { name: 'ping', description: 'exposed ping', parameters } },
+    ])
+  })
+
   it('omits an empty tools array', () => {
     const wire = serializeRequest(request({ messages: history, tools: [] }))
     expect(wire.tools).toBeUndefined()

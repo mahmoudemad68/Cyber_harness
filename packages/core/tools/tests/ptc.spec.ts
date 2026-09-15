@@ -7,7 +7,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import ToolRuntime, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
-import type { Config, JsonSchemaNode, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import type { Config, JsonSchemaNode, PostToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap } from '@deepseek-ai/dsh-session'
@@ -1874,5 +1874,209 @@ describe('per-agent presentation', () => {
 
     await expect(systemPrompt.assemble({ scope: agent }))
       .rejects.toThrow('mode "both" requires a code runtime')
+  })
+})
+
+describe('ModelToolSurface with native/ptc/both', () => {
+  function pingSurface() {
+    return {
+      id: 'ptc-alias',
+      project: (schema: { name: string }) => (
+        schema.name === 'echo' ? { exposedName: 'ping' } : { exposedName: schema.name }
+      ),
+    }
+  }
+
+  it("mode 'native' exposes the alias and executes the canonical tool", async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'native', runtime: false })
+    const calls = registerEcho(ctx)
+    const { scope, agent } = await mintAgentScope(ctx)
+    scope.ctx.tools.registerSurface(pingSurface())
+
+    expect((await systemPrompt.assemble({ scope: agent })).tools.map(tool => tool.name)).toEqual(['ping'])
+    const names: string[] = []
+    ctx.on('tools/pre-execute', (exec: ToolExecution, next) => {
+      names.push(exec.name)
+      return next()
+    })
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: ToolCallId('native-alias'),
+      name: 'ping',
+      arguments: { value: 'hi' },
+      agent,
+    })
+    expect(result).toMatchObject({ isError: false, value: 'echo:hi' })
+    expect(calls).toEqual([{ value: 'hi' }])
+    expect(names).toEqual(['echo'])
+    const denied = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: ToolCallId('native-canonical'),
+      name: 'echo',
+      arguments: { value: 'no' },
+      agent,
+    })
+    expect(denied.error?.info?.code).toBe('UNKNOWN_TOOL')
+  })
+
+  it.each(['ptc', 'both'] as const)('mode %s binds the alias inside run_code and keeps run_code itself', async (mode) => {
+    const { ctx, systemPrompt, runtime } = await setup({ mode })
+    const calls = registerEcho(ctx)
+    const { scope, agent } = await mintAgentScope(ctx)
+    const events: { type: string; data: unknown }[] = []
+    Object.assign(agent, {
+      session: {
+        append: (type: string, data: unknown) => { events.push({ type, data }) },
+      },
+    })
+    scope.ctx.tools.registerSurface({
+      id: 'ptc-alias',
+      project: (schema) => {
+        if (schema.name === 'echo') return { exposedName: 'ping' }
+        return { exposedName: `renamed-${schema.name}` }
+      },
+    })
+
+    const assembly = await systemPrompt.assemble({ scope: agent })
+    expect(assembly.tools.map(tool => tool.name)).toEqual(mode === 'ptc'
+      ? [RUN_CODE_NAME]
+      : ['ping', RUN_CODE_NAME])
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
+    expect(sdk).toContain('ping: {')
+    expect(sdk).not.toContain('echo: {')
+    expect(sdk).not.toContain('renamed-run_code')
+
+    const names: string[] = []
+    ctx.on('tools/pre-execute', (exec: ToolExecution, next) => {
+      names.push(exec.name)
+      return next()
+    })
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      expect(Object.keys(tools).sort()).toEqual(['ping'])
+      return { logs: [], value: await tools.ping!({ value: 'via-sdk' }) }
+    }
+    const nested = await runCode(ctx, 'program', { agent })
+    expect(nested).toMatchObject({ isError: false })
+    expect(calls).toEqual([{ value: 'via-sdk' }])
+    expect(names).toEqual([RUN_CODE_NAME, 'echo'])
+    expect(events.some(event => (
+      event.type === 'tool/ptc-dispatch'
+      && (event.data as { name: string }).name === 'ping'
+    ))).toBe(true)
+
+    const direct = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: ToolCallId('direct-alias'),
+      name: 'ping',
+      arguments: { value: 'direct' },
+      agent,
+    })
+    if (mode === 'ptc') {
+      expect(direct.error?.info?.code).toBe('UNKNOWN_TOOL')
+      expect(direct.error?.message).toContain('only `run_code` is callable directly')
+      expect(calls).toEqual([{ value: 'via-sdk' }])
+    } else {
+      expect(direct).toMatchObject({ isError: false, value: 'echo:direct' })
+      expect(calls).toEqual([{ value: 'via-sdk' }, { value: 'direct' }])
+    }
+  })
+
+  it("mode 'ptc' omits a hidden tool from the generated SDK", async () => {
+    const { ctx, systemPrompt, runtime } = await setup({ mode: 'ptc' })
+    registerEcho(ctx)
+    ctx.tools.register(defineTool({
+      name: 'secret',
+      description: 'hidden',
+      parameters: { value: { type: 'string' } },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      execute: args => Promise.resolve(`secret:${args.value}`),
+    }))
+    const { scope, agent } = await mintAgentScope(ctx)
+    scope.ctx.tools.registerSurface({
+      id: 'hide-secret',
+      project(schema) {
+        if (schema.name === 'secret') return undefined
+        return schema.name === 'echo' ? { exposedName: 'ping' } : { exposedName: schema.name }
+      },
+    })
+    const sdk = (await systemPrompt.assemble({ scope: agent })).sections
+      .find(section => section.name === 'tools:sdk')?.text
+    expect(sdk).toContain('ping: {')
+    expect(sdk).not.toContain('secret: {')
+    expect(sdk).not.toContain('echo: {')
+    runtime.behavior = async (request) => {
+      expect(Object.keys(request.bindings[0]!.functions).sort()).toEqual(['ping'])
+      return { logs: [], value: 'ok' }
+    }
+    const nested = await runCode(ctx, 'program', { agent })
+    expect(nested).toMatchObject({ isError: false })
+  })
+
+  it("mode 'ptc' keeps frozen SDK bindings after the live surface is disposed", async () => {
+    const { ctx, systemPrompt, runtime } = await setup({ mode: 'ptc' })
+    const calls = registerEcho(ctx)
+    const { scope, agent } = await mintAgentScope(ctx)
+    Object.assign(agent, {
+      session: {
+        append: () => {},
+      },
+    })
+    const lift = scope.ctx.tools.registerSurface(pingSurface())
+    await systemPrompt.assemble({ scope: agent })
+    lift()
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      expect(Object.keys(tools).sort()).toEqual(['ping'])
+      expect(tools.echo).toBeUndefined()
+      return { logs: [], value: await tools.ping!({ value: 'frozen-sdk' }) }
+    }
+    const nested = await runCode(ctx, 'program', { agent })
+    expect(nested).toMatchObject({ isError: false })
+    expect(calls).toEqual([{ value: 'frozen-sdk' }])
+
+    await systemPrompt.assemble({ scope: agent })
+    runtime.behavior = async (request) => {
+      expect(Object.keys(request.bindings[0]!.functions).sort()).toEqual(['echo'])
+      return { logs: [], value: await request.bindings[0]!.functions.echo!({ value: 'live-sdk' }) }
+    }
+    const later = await runCode(ctx, 'program', { agent })
+    expect(later).toMatchObject({ isError: false })
+    expect(calls).toEqual([{ value: 'frozen-sdk' }, { value: 'live-sdk' }])
+  })
+
+  it("mode 'ptc' keeps frozen SDK bindings when a tool registers after assemble", async () => {
+    const { ctx, systemPrompt, runtime } = await setup({ mode: 'ptc' })
+    const echoCalls = registerEcho(ctx)
+    const { agent } = await mintAgentScope(ctx)
+    Object.assign(agent, {
+      session: {
+        append: () => {},
+      },
+    })
+    await systemPrompt.assemble({ scope: agent })
+    const extraCalls = registerEcho(ctx, 'extra')
+    expect(ctx.tools.schemas(agent).map(schema => schema.name).sort()).toEqual(['echo', 'extra', RUN_CODE_NAME])
+    runtime.behavior = async (request) => {
+      expect(Object.keys(request.bindings[0]!.functions).sort()).toEqual(['echo'])
+      expect(request.bindings[0]!.functions.extra).toBeUndefined()
+      return { logs: [], value: await request.bindings[0]!.functions.echo!({ value: 'frozen-sdk' }) }
+    }
+    const nested = await runCode(ctx, 'program', { agent })
+    expect(nested).toMatchObject({ isError: false })
+    expect(echoCalls).toEqual([{ value: 'frozen-sdk' }])
+    expect(extraCalls).toEqual([])
+
+    await systemPrompt.assemble({ scope: agent })
+    runtime.behavior = async (request) => {
+      expect(Object.keys(request.bindings[0]!.functions).sort()).toEqual(['echo', 'extra'])
+      return { logs: [], value: await request.bindings[0]!.functions.extra!({ value: 'next-sdk' }) }
+    }
+    const later = await runCode(ctx, 'program', { agent })
+    expect(later).toMatchObject({ isError: false })
+    expect(extraCalls).toEqual([{ value: 'next-sdk' }])
   })
 })
