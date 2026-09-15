@@ -2625,7 +2625,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'registerSurface(surface: ModelToolSurface): () => void',
         description: 'Declare the model-facing name mapping for the calling agent scope. Nearest scope on the chain wins, so a preset\'s standing declaration covers every agent joined under it. Identity (no declaration) is the default: exposed names equal registered names.\n\nScoped only, and one declaration per scope. A process-global mapping would rename tools for every agent, including `standard`.',
-        parameters: [{ name: 'surface', description: 'pure projection from canonical schemas to exposed names.' }],
+        parameters: [{ name: 'surface', description: 'mapping from canonical schemas to exposed names. The registry snapshots it at assemble for this scope and uses that snapshot for reverse resolution until the next assemble.' }],
         returns: 'the exact disposer that restores the identity mapping.',
       },
       {
@@ -2654,7 +2654,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'schemas(scope?: ScopeKey): ToolSchema[]',
-        description: 'Project visible definitions onto the allowlisted model-facing schema fields, excluding execution and presentation callbacks. A scoped ModelToolSurface rewrites only name and description; parameters stay the registered schema. The identity mapping is the default.',
+        description: 'Project visible definitions onto the allowlisted model-facing schema fields, excluding execution and presentation callbacks. A scoped ModelToolSurface rewrites only name and description; parameters stay the registered schema. The identity mapping is the default. After assemble for this scope, this is the snapshot from that request until the next assemble; without assemble, it projects the live visible set.',
         parameters: [{ name: 'scope', description: 'the viewing scope (the agent); omitted = the global view.' }],
         returns: 'one deep-cloned schema per tool the model may see.',
       },
