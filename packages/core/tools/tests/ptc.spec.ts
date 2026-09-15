@@ -2020,6 +2020,11 @@ describe('ModelToolSurface with native/ptc/both', () => {
     const { ctx, systemPrompt, runtime } = await setup({ mode: 'ptc' })
     const calls = registerEcho(ctx)
     const { scope, agent } = await mintAgentScope(ctx)
+    Object.assign(agent, {
+      session: {
+        append: () => {},
+      },
+    })
     const lift = scope.ctx.tools.registerSurface(pingSurface())
     await systemPrompt.assemble({ scope: agent })
     lift()

@@ -149,16 +149,15 @@ describe('model tool surface through the agent loop', () => {
     expect(bodies).toEqual([{ text: 'hi' }])
     expect(pipelineNames).toEqual(['echo'])
     expect(adapter.requests[0]?.tools?.map(tool => tool.name)).toEqual(['ping'])
+    expect(adapter.requests[1]?.tools?.map(tool => tool.name)).toEqual(['echo'])
 
     const firstEvents = agent.session.snapshotEvents()
-    const firstHeader = firstEvents.filter(event => event.type === 'request/header')
-    expect(firstHeader).toHaveLength(1)
-    expect(firstHeader[0]?.type === 'request/header'
-      && firstHeader[0].data.header.tools?.map(tool => tool.name)).toEqual(['ping'])
+    const firstHeaders = firstEvents.filter(event => event.type === 'request/header')
+    expect(firstHeaders[0]?.type === 'request/header'
+      && firstHeaders[0].data.header.tools?.map(tool => tool.name)).toEqual(['ping'])
     expect(structuredClone(adapter.requests[0]?.tools ?? [])).toEqual(structuredClone(
-      firstHeader[0]?.type === 'request/header' ? firstHeader[0].data.header.tools ?? [] : [],
+      firstHeaders[0]?.type === 'request/header' ? firstHeaders[0].data.header.tools ?? [] : [],
     ))
-    expect(foldRequestHeader(firstEvents)?.tools?.map(tool => tool.name)).toEqual(['ping'])
 
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'use echo' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
