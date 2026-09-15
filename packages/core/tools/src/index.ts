@@ -977,10 +977,8 @@ export class ToolRuntime extends Service {
     const remember = (exposedName: string, canonicalName: string, schema: ToolSchema): void => {
       const existing = exposedToCanonical.get(exposedName)
       if (existing !== undefined) {
-        if (surface === undefined) {
-          /* v8 ignore next -- identity projection uses unique registered names */
-          throw new Error(`duplicate exposed name "${exposedName}"`)
-        }
+        /* v8 ignore next -- identity projection uses unique registered names */
+        if (surface === undefined) throw new Error(`duplicate exposed name "${exposedName}"`)
         throw new Error(`model tool surface "${surface.id}" maps "${existing}" and "${canonicalName}" to the same exposed name "${exposedName}"`)
       }
       exposedToCanonical.set(exposedName, canonicalName)
@@ -1414,7 +1412,10 @@ export class ToolRuntime extends Service {
     const canonical = this.canonicalNameFor(name, scope)
     if (canonical === undefined) return undefined
     const tool = this.get(canonical, scope)
-    if (tool === undefined) return undefined
+    /* v8 ignore next 3 -- projectDefinitions enumerates the same view get() reads */
+    if (tool === undefined) {
+      return undefined
+    }
     if (this.collapses(canonical, scope, nested)) return undefined
     return tool
   }
@@ -1577,11 +1578,11 @@ export class ToolRuntime extends Service {
     const callId = exec.callId
     const rootCallId = exec.rootCallId ?? callId
     const requestedName = exec.name
-    const canonicalName = this.canonicalNameFor(requestedName, exec.agent)
-    const name = canonicalName ?? requestedName
     const agent = exec.agent
     const parent = exec.parent
     const signal = exec.signal
+    const canonicalName = this.canonicalNameFor(requestedName, agent)
+    const name = canonicalName ?? requestedName
     // Distinguish a mode-collapsed call (visible in the scope, denied only by
     // the `ptc` collapse) from a genuinely unknown tool. A collapsed call is
     // deterministically denied, so it terminates BEFORE the extensible policy

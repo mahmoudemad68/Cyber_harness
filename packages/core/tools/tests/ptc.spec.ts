@@ -1981,4 +1981,38 @@ describe('ModelToolSurface with native/ptc/both', () => {
       expect(calls).toEqual([{ value: 'via-sdk' }, { value: 'direct' }])
     }
   })
+
+  it("mode 'ptc' omits a hidden tool from the generated SDK", async () => {
+    const { ctx, systemPrompt, runtime } = await setup({ mode: 'ptc' })
+    registerEcho(ctx)
+    ctx.tools.register(defineTool({
+      name: 'secret',
+      description: 'hidden',
+      parameters: { value: { type: 'string' } },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      execute: args => Promise.resolve(`secret:${args.value}`),
+    }))
+    const { scope, agent } = await mintAgentScope(ctx)
+    scope.ctx.tools.registerSurface({
+      id: 'hide-secret',
+      project(schema) {
+        if (schema.name === 'secret') return undefined
+        return schema.name === 'echo' ? { exposedName: 'ping' } : { exposedName: schema.name }
+      },
+    })
+    const sdk = (await systemPrompt.assemble({ scope: agent })).sections
+      .find(section => section.name === 'tools:sdk')?.text
+    expect(sdk).toContain('ping: {')
+    expect(sdk).not.toContain('secret: {')
+    expect(sdk).not.toContain('echo: {')
+    runtime.behavior = async (request) => {
+      expect(Object.keys(request.bindings[0]!.functions).sort()).toEqual(['ping'])
+      return { logs: [], value: 'ok' }
+    }
+    const nested = await runCode(ctx, 'program', { agent })
+    expect(nested).toMatchObject({ isError: false })
+  })
 })

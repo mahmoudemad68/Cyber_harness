@@ -303,6 +303,19 @@ describe('ModelToolSurface fail-closed mapping', () => {
     expect(() => ctx.tools.schemas(key)).toThrow(/project\(\) failed for "echo": nope/)
   })
 
+  it('wraps a non-Error project() throw with the canonical tool name', async () => {
+    const ctx = await mount()
+    ctx.tools.register(echo())
+    const { scope, key } = await mintAgentScope(ctx)
+    scope.ctx.tools.registerSurface({
+      id: 'boom-string',
+      project() {
+        throw 'nope'
+      },
+    })
+    expect(() => ctx.tools.schemas(key)).toThrow(/project\(\) failed for "echo": nope/)
+  })
+
   it('rejects an exposed name that another tool provider already contributed', async () => {
     const ctx = await mount()
     ctx.tools.register(echo())
